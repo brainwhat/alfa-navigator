@@ -15,6 +15,7 @@ permissions:
 
 env:
   VERCEL_CLI_VERSION: 62.0.0
+  UV_VERSION: 0.10.2
 
 jobs:
   test:
@@ -69,6 +70,8 @@ jobs:
             fi
           done
 
+      # vercel build installs the Python function's dependencies with uv
+      - run: python -m pip install uv==${UV_VERSION}
       - run: npm install --global vercel@${VERCEL_CLI_VERSION}
 
       - name: Pull Vercel project settings

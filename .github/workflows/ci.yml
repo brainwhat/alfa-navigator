@@ -88,11 +88,12 @@ jobs:
           # The unique deployment URL sits behind Vercel Authentication; production also gets a public alias.
           if [ "$TARGET" = production ]; then
             for attempt in 1 2 3 4 5 6; do
-              alias=$(vercel inspect "$url" --format=json --token="$VERCEL_TOKEN" 2>/dev/null \
+              alias=$(vercel inspect "$url" --format=json --token="$VERCEL_TOKEN" 2>"$RUNNER_TEMP/inspect.err" \
                 | python -c "import json,sys; a=json.load(sys.stdin).get('aliases') or ['']; print(a[0])" || true)
               [ -n "$alias" ] && break
               sleep 5
             done
+            [ -n "$alias" ] || { echo "::warning::Не удалось получить алиас production"; cat "$RUNNER_TEMP/inspect.err"; }
             url=${alias:+https://$alias}
             url=${url:-$deploy_url}
           fi

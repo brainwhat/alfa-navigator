@@ -29,6 +29,12 @@ app = FastAPI(title='Альфа.Навигатор — демо API', version='1
 DEMO_CLIENT_KEY = os.getenv('DEMO_CLIENT_KEY', 'demo-client-change-me')
 DEMO_BANK_KEY = os.getenv('DEMO_BANK_KEY', 'demo-bank-change-me')
 DEMO_LOGIN_PASSWORD = os.getenv('DEMO_LOGIN_PASSWORD', 'alfa-demo-2026')
+# Separate per-role passwords; both fall back to the shared demo password for local runs.
+DEMO_PASSWORDS = {'client': os.getenv('DEMO_CLIENT_PASSWORD', DEMO_LOGIN_PASSWORD),
+                  'bank': os.getenv('DEMO_BANK_PASSWORD', DEMO_LOGIN_PASSWORD)}
+PUBLIC_DEFAULTS = {'demo-client-change-me', 'demo-bank-change-me', 'alfa-demo-2026'}
+if os.getenv('VERCEL_ENV') == 'production' and PUBLIC_DEFAULTS & {DEMO_CLIENT_KEY, DEMO_BANK_KEY, *DEMO_PASSWORDS.values()}:
+    raise RuntimeError('Production uses demo secrets from the public repo: set DEMO_CLIENT_KEY, DEMO_BANK_KEY, DEMO_CLIENT_PASSWORD, DEMO_BANK_PASSWORD')
 
 def require(role: str):
     def dependency(authorization: str | None = Header(None)):
@@ -56,7 +62,7 @@ class LoginInput(BaseModel):
 
 @app.post('/api/demo/login')
 def login(payload: LoginInput):
-    if not secrets.compare_digest(payload.password, DEMO_LOGIN_PASSWORD):
+    if not secrets.compare_digest(payload.password, DEMO_PASSWORDS[payload.role]):
         raise HTTPException(401, 'Неверный демонстрационный пароль')
     return {'role': payload.role, 'access_token': DEMO_CLIENT_KEY if payload.role == 'client' else DEMO_BANK_KEY, 'token_type':'bearer', 'warning':'Учётные записи являются демонстрационными, не production IAM'}
 

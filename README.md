@@ -30,7 +30,7 @@ docker compose up --build
 1. Создайте проект на Vercel и привяжите его локально: `npx vercel link`. ID появятся в `.vercel/project.json`.
 2. Создайте токен: Vercel → Account Settings → Tokens.
 3. Добавьте в GitHub (Settings → Secrets and variables → Actions) секреты `VERCEL_TOKEN`, `VERCEL_ORG_ID` (поле `orgId`) и `VERCEL_PROJECT_ID` (поле `projectId`).
-4. По желанию задайте в Vercel → Project → Settings → Environment Variables свои `DEMO_LOGIN_PASSWORD`, `DEMO_CLIENT_KEY`, `DEMO_BANK_KEY`. Если их нет, используются демо-значения по умолчанию.
+4. Задайте в Vercel → Project → Settings → Environment Variables (Production) свои `DEMO_CLIENT_KEY`, `DEMO_BANK_KEY`, `DEMO_CLIENT_PASSWORD`, `DEMO_BANK_PASSWORD`, а пароли продублируйте в GitHub Secrets для smoke-проверки. На production с демо-значениями из репозитория приложение не запустится. Локально и в preview работают значения по умолчанию.
 5. По желанию: Vercel закрывает уникальные URL деплоев авторизацией (Deployment Protection). Production проверяется по публичному алиасу, а smoke-проверка preview пропускается с предупреждением. Чтобы preview тоже проверялись, включите Protection Bypass for Automation и положите его значение в секрет `VERCEL_AUTOMATION_BYPASS_SECRET`.
 
 **База данных.** Если задан `DATABASE_URL` (или `POSTGRES_URL`), приложение работает с Postgres, иначе с SQLite по пути `DB_PATH`. На Vercel к проекту подключён Neon из Vercel Marketplace (бесплатный тариф, регион `iad1`), он сам выставляет `DATABASE_URL` для всех окружений. Таблицы создаются при первом старте. Локальный запуск, Docker и тесты по умолчанию используют SQLite. Проверить, какая база используется: `GET /api/health` возвращает поле `database`.

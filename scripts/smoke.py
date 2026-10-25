@@ -4,7 +4,7 @@ Usage: python scripts/smoke.py BASE_URL [--full] [--strict]
   --full    also run the client -> bank e2e flow (creates a synthetic application)
   --strict  fail instead of skipping when Vercel Deployment Protection blocks access
 
-Env: DEMO_LOGIN_PASSWORD (default alfa-demo-2026),
+Env: DEMO_CLIENT_PASSWORD / DEMO_BANK_PASSWORD (fall back to DEMO_LOGIN_PASSWORD, default alfa-demo-2026),
      VERCEL_AUTOMATION_BYPASS_SECRET (optional, for protected Vercel deployments).
 """
 import json
@@ -15,6 +15,7 @@ import urllib.error
 import urllib.request
 
 PASSWORD = os.getenv('DEMO_LOGIN_PASSWORD', 'alfa-demo-2026')
+PASSWORDS = {'client': os.getenv('DEMO_CLIENT_PASSWORD', PASSWORD), 'bank': os.getenv('DEMO_BANK_PASSWORD', PASSWORD)}
 BYPASS = os.getenv('VERCEL_AUTOMATION_BYPASS_SECRET')
 
 
@@ -46,7 +47,7 @@ def wait_healthy(base, attempts=30):
 
 
 def login(base, role):
-    _, text = call(base, '/api/demo/login', 'POST', {'role': role, 'password': PASSWORD})
+    _, text = call(base, '/api/demo/login', 'POST', {'role': role, 'password': PASSWORDS[role]})
     return json.loads(text)['access_token']
 
 

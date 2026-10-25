@@ -4,6 +4,9 @@ Usage: python scripts/smoke.py BASE_URL [--full] [--strict]
   --full    also run the client -> bank e2e flow (creates a synthetic application)
   --strict  fail instead of skipping when Vercel Deployment Protection blocks access
 
+Without --full the check only reads: readiness (database answers, schema is current), the page,
+both logins and an authenticated read of the application list.
+
 Env: DEMO_CLIENT_PASSWORD / DEMO_BANK_PASSWORD (fall back to DEMO_LOGIN_PASSWORD, default alfa-demo-2026),
      VERCEL_AUTOMATION_BYPASS_SECRET (optional, for protected Vercel deployments).
 """
@@ -13,14 +16,15 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from uuid import uuid4
 
 PASSWORD = os.getenv('DEMO_LOGIN_PASSWORD', 'alfa-demo-2026')
 PASSWORDS = {'client': os.getenv('DEMO_CLIENT_PASSWORD', PASSWORD), 'bank': os.getenv('DEMO_BANK_PASSWORD', PASSWORD)}
 BYPASS = os.getenv('VERCEL_AUTOMATION_BYPASS_SECRET')
 
 
-def call(base, path, method='GET', body=None, token=None):
-    headers = {'Content-Type': 'application/json'}
+def call(base, path, method='GET', body=None, token=None, headers=None):
+    headers = {'Content-Type': 'application/json', **(headers or {})}
     if token:
         headers['Authorization'] = 'Bearer ' + token
     if BYPASS:
@@ -31,19 +35,22 @@ def call(base, path, method='GET', body=None, token=None):
         return response.status, response.read().decode()
 
 
-def wait_healthy(base, attempts=30):
+def wait_ready(base, attempts=30):
+    """Wait until /api/ready answers 200: the process is up and the database is reachable."""
+    last = 'нет ответа'
     for i in range(attempts):
         try:
-            status, text = call(base, '/api/health')
-            if status == 200 and json.loads(text).get('status') == 'ok':
-                return
+            status, text = call(base, '/api/ready')
+            if status == 200 and json.loads(text).get('status') == 'ready':
+                return json.loads(text)
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 raise
-        except (urllib.error.URLError, ConnectionError, TimeoutError):
-            pass
+            last = f'{e.code} {e.read().decode()[:200]}'
+        except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
+            last = str(e)
         time.sleep(1)
-    sys.exit(f'FAIL: {base}/api/health не ответил за {attempts} попыток')
+    sys.exit(f'FAIL: {base}/api/ready не готов за {attempts} попыток: {last}')
 
 
 def login(base, role):
@@ -59,16 +66,16 @@ def main():
     if not base.startswith('http'):
         base = 'https://' + base
     try:
-        wait_healthy(base)
+        ready = wait_ready(base)
     except urllib.error.HTTPError as e:
-        # The app never answers 401 on /api/health, so this is Vercel Deployment Protection.
+        # The app never answers 401 on /api/ready, so this is Vercel Deployment Protection.
         message = (f'{base} закрыт Vercel Deployment Protection (401). '
                    'Задайте секрет VERCEL_AUTOMATION_BYPASS_SECRET или отключите защиту.')
         if '--strict' in sys.argv:
             sys.exit('FAIL: ' + message)
         print('::warning::' + message)
         return
-    print('ok  health')
+    print(f"ok  ready: {ready['database']}, схема {ready['schema_version']}")
 
     status, page = call(base, '/')
     assert status == 200 and 'Альфа' in page, 'главная страница не отдаётся'
@@ -77,18 +84,26 @@ def main():
     client, bank = login(base, 'client'), login(base, 'bank')
     print('ok  login client/bank')
 
+    _, text = call(base, '/api/applications', token=bank)
+    print(f'ok  чтение очереди из базы: {len(json.loads(text))} заявок')
+
     if '--full' in sys.argv:
-        _, text = call(base, '/api/applications', 'POST', {
-            'company': 'ООО Smoke-тест', 'purpose': 'Проверка CI', 'amount': 1_000_000, 'months': 24,
-            'revenue': 1_600_000, 'available_cashflow': 240_000, 'existing_payments': 30_000,
-            'overdue': False}, client)
+        application = {'company': 'ООО Smoke-тест', 'purpose': 'Проверка CI', 'amount': 1_000_000, 'months': 24,
+                       'revenue': 1_600_000, 'available_cashflow': 240_000, 'existing_payments': 30_000, 'overdue': False}
+        key = {'Idempotency-Key': 'smoke-' + uuid4().hex}
+        _, text = call(base, '/api/applications', 'POST', application, client, key)
         app_id = json.loads(text)['id']
+        status, text = call(base, '/api/applications', 'POST', application, client, key)
+        assert status == 200 and json.loads(text)['id'] == app_id, 'повтор с тем же Idempotency-Key создал вторую заявку'
         _, text = call(base, f'/api/applications/{app_id}/evaluate', 'POST', token=bank)
-        decision = json.loads(text)['status']
-        assert decision == 'approved', f'ожидалось approved, получено {decision}'
-        _, text = call(base, f'/api/applications/{app_id}/accept', 'POST', token=client)
-        assert json.loads(text)['status'] == 'accepted'
-        print(f'ok  e2e: заявка {app_id} -> approved -> accepted')
+        scored = json.loads(text)
+        assert scored['status'] == 'approved', f"ожидалось approved, получено {scored['status']}"
+        offer = scored['explanation']['offer']
+        _, text = call(base, f'/api/applications/{app_id}/accept', 'POST', {'offer_id': offer['offer_id']}, client,
+                       {'If-Match': str(scored['version'])})
+        accepted = json.loads(text)
+        assert accepted['status'] == 'accepted' and accepted['explanation']['accepted_terms'] == offer
+        print(f'ok  e2e: заявка {app_id} -> approved -> accepted, условия совпали с предложением')
 
     print(f'PASS {base}')
 

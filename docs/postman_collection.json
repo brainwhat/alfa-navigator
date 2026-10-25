@@ -1,217 +1,617 @@
 {
   "info": {
     "name": "Alfa Navigator Demo API",
+    "description": "Запустите «Вход» для обеих ролей: токены сохраняются в переменные. После каждой команды по заявке version обновляется автоматически и уходит в If-Match.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Версия показанной заявки для If-Match: следующая команда не перезапишет чужое изменение",
+          "if (pm.response.code < 300) {",
+          "  try {",
+          "    const j = pm.response.json();",
+          "    if (j && j.id && j.version !== undefined) pm.collectionVariables.set('application_version', j.version);",
+          "  } catch (e) {}",
+          "}"
+        ]
+      }
+    }
+  ],
   "variable": [
     {
       "key": "base_url",
       "value": "http://localhost:8000"
     },
     {
+      "key": "client_password",
+      "value": "alfa-demo-2026"
+    },
+    {
+      "key": "bank_password",
+      "value": "alfa-demo-2026"
+    },
+    {
+      "key": "client_token",
+      "value": ""
+    },
+    {
+      "key": "bank_token",
+      "value": ""
+    },
+    {
       "key": "application_id",
       "value": ""
     },
     {
-      "key": "client_token",
-      "value": "demo-client-change-me"
+      "key": "application_version",
+      "value": ""
     },
     {
-      "key": "bank_token",
-      "value": "demo-bank-change-me"
+      "key": "offer_id",
+      "value": ""
     }
   ],
   "item": [
     {
-      "name": "Login",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/api/demo/login",
-        "body": {
-          "mode": "raw",
-          "raw": "{\"role\": \"client\", \"password\": \"alfa-demo-2026\"}",
-          "options": {
-            "raw": {
-              "language": "json"
+      "name": "Сессия и состояние",
+      "item": [
+        {
+          "name": "Вход: предприниматель",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/demo/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"client\",\n  \"password\": \"{{client_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
-          }
-        }
-      }
-    },
-    {
-      "name": "New application",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{client_token}}"
           },
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/api/applications",
-        "body": {
-          "mode": "raw",
-          "raw": "{\"company\": \"ООО Кофе и город\", \"purpose\": \"Вторая кофейня\", \"amount\": 5000000, \"months\": 24, \"revenue\": 1600000, \"available_cashflow\": 240000, \"existing_payments\": 30000, \"overdue\": false}",
-          "options": {
-            "raw": {
-              "language": "json"
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('client_token', pm.response.json().access_token);"
+                ]
+              }
             }
-          }
-        }
-      }
-    },
-    {
-      "name": "Client applications",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{client_token}}"
-          }
-        ],
-        "url": "{{base_url}}/api/my-applications"
-      }
-    },
-    {
-      "name": "Bank applications",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{bank_token}}"
-          }
-        ],
-        "url": "{{base_url}}/api/applications"
-      }
-    },
-    {
-      "name": "Simulate",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{client_token}}"
+          ]
+        },
+        {
+          "name": "Вход: банк",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/demo/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"bank\",\n  \"password\": \"{{bank_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           },
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/api/simulate",
-        "body": {
-          "mode": "raw",
-          "raw": "{\"amount\": 3000000, \"months\": 24, \"available_cashflow\": 210000, \"existing_payments\": 10000, \"seasonality\": 30}",
-          "options": {
-            "raw": {
-              "language": "json"
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('bank_token', pm.response.json().access_token);"
+                ]
+              }
             }
+          ]
+        },
+        {
+          "name": "Liveness",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/health"
           }
-        }
-      }
-    },
-    {
-      "name": "Company stub",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{client_token}}"
-          }
-        ],
-        "url": "{{base_url}}/api/mock/company/1234567890"
-      }
-    },
-    {
-      "name": "Evaluate",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{bank_token}}"
-          }
-        ],
-        "url": "{{base_url}}/api/applications/{{application_id}}/evaluate"
-      }
-    },
-    {
-      "name": "Request info",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{bank_token}}"
+        },
+        {
+          "name": "Readiness: база и схема",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/ready"
           },
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "url": "{{base_url}}/api/applications/{{application_id}}/request-info",
-        "body": {
-          "mode": "raw",
-          "raw": "{\"reason\": \"Уточните данные о выручке\"}",
-          "options": {
-            "raw": {
-              "language": "json"
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ready', () => pm.expect(pm.response.json().status).to.eql('ready'));"
+                ]
+              }
             }
-          }
+          ]
         }
-      }
+      ]
     },
     {
-      "name": "Clarify",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{client_token}}"
+      "name": "Клиент",
+      "item": [
+        {
+          "name": "Предварительная оценка",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{client_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/precheck",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 5000000,\n  \"months\": 24,\n  \"revenue\": 1600000,\n  \"available_cashflow\": 240000,\n  \"existing_payments\": 30000,\n  \"overdue\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Симулятор на 12 месяцев",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{client_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/simulate",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 5000000,\n  \"months\": 24,\n  \"available_cashflow\": 240000,\n  \"existing_payments\": 30000,\n  \"seasonality\": 30\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "График платежей с досрочным погашением",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{client_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/schedule",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 1000000,\n  \"months\": 24,\n  \"annual_rate\": 0.18,\n  \"prepay_month\": 6,\n  \"prepay_amount\": 300000,\n  \"prepay_mode\": \"term\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Новая заявка",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{client_token}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{base_url}}/api/applications",
+            "description": "Повтор с тем же Idempotency-Key вернёт ту же заявку (200, Idempotency-Replayed: true).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"company\": \"ООО Кофе и город\",\n  \"purpose\": \"Открыть вторую кофейню\",\n  \"amount\": 5000000,\n  \"months\": 24,\n  \"revenue\": 1600000,\n  \"available_cashflow\": 240000,\n  \"existing_payments\": 30000,\n  \"overdue\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           },
-          {
-            "key": "Content-Type",
-            "value": "application/json"
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('application_id', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Мои заявки",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{client_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/my-applications"
           }
-        ],
-        "url": "{{base_url}}/api/applications/{{application_id}}/clarify",
-        "body": {
-          "mode": "raw",
-          "raw": "{\"available_cashflow\": 260000, \"note\": \"Обновлённый прогноз\"}",
-          "options": {
-            "raw": {
-              "language": "json"
+        },
+        {
+          "name": "Уточнение для банка",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{client_token}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{application_version}}"
+              }
+            ],
+            "url": "{{base_url}}/api/applications/{{application_id}}/clarify",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Приложили выписку\",\n  \"available_cashflow\": 300000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           }
+        },
+        {
+          "name": "Принять предложение",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{client_token}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{application_version}}"
+              }
+            ],
+            "url": "{{base_url}}/api/applications/{{application_id}}/accept",
+            "description": "Для контрпредложения добавьте \"offer\": \"amount\" или \"term\". offer_id подставляется после скоринга.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"offer_id\": \"{{offer_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Отозвать заявку",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{client_token}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{application_version}}"
+              }
+            ],
+            "url": "{{base_url}}/api/applications/{{application_id}}/withdraw"
+          }
         }
-      }
+      ]
     },
     {
-      "name": "Accept",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{client_token}}"
+      "name": "Банк",
+      "item": [
+        {
+          "name": "Очередь с SLA",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bank_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/applications"
           }
-        ],
-        "url": "{{base_url}}/api/applications/{{application_id}}/accept"
-      }
+        },
+        {
+          "name": "Карточка заявки",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bank_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/applications/{{application_id}}"
+          }
+        },
+        {
+          "name": "Запросить уточнение",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bank_token}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{application_version}}"
+              }
+            ],
+            "url": "{{base_url}}/api/applications/{{application_id}}/request-info",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Подтвердите денежный поток\",\n  \"fields\": [\n    \"available_cashflow\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Скоринг",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bank_token}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{application_version}}"
+              }
+            ],
+            "url": "{{base_url}}/api/applications/{{application_id}}/evaluate"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const e = pm.response.json().explanation || {};",
+                  "const offer = e.offer || (e.offers || [])[0];",
+                  "if (offer) pm.collectionVariables.set('offer_id', offer.offer_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ручное решение",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bank_token}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{application_version}}"
+              }
+            ],
+            "url": "{{base_url}}/api/applications/{{application_id}}/decision",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approved\",\n  \"reason\": \"Поручительство собственника покрывает риск\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Продлить предложение",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bank_token}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "{{application_version}}"
+              }
+            ],
+            "url": "{{base_url}}/api/applications/{{application_id}}/extend"
+          }
+        },
+        {
+          "name": "Аналитика за 30 дней",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bank_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/analytics?days=30"
+          }
+        },
+        {
+          "name": "Заполнить демо-данными",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bank_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/demo/seed"
+          }
+        },
+        {
+          "name": "Удалить демо-данные",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bank_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/demo/seed"
+          }
+        },
+        {
+          "name": "Заглушка ФНС",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bank_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/mock/company/7700000000"
+          }
+        }
+      ]
     }
   ]
 }

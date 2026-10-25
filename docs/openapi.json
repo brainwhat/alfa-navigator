@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Альфа.Навигатор — демо API",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "paths": {
     "/api/demo/login": {
@@ -24,7 +24,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
               }
             }
           },
@@ -68,7 +70,126 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ListItem"
+                  },
+                  "title": "Response My Applications Api My Applications Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/precheck": {
+      "post": {
+        "summary": "Precheck",
+        "description": "Same rules as the bank's scoring, without saving anything.",
+        "operationId": "precheck_api_precheck_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoanTerms"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Precheck"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/schedule": {
+      "post": {
+        "summary": "Schedule",
+        "operationId": "schedule_api_schedule_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleOut"
+                }
               }
             }
           },
@@ -88,6 +209,7 @@
     "/api/simulate": {
       "post": {
         "summary": "Simulate",
+        "description": "Twelve months from the first payment; the loan payment comes from the amortization schedule, so it stops when the loan is repaid.",
         "operationId": "simulate_api_simulate_post",
         "parameters": [
           {
@@ -122,7 +244,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationOut"
+                }
               }
             }
           },
@@ -192,32 +316,48 @@
         }
       }
     },
-    "/": {
-      "get": {
-        "summary": "Index",
-        "operationId": "index__get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/health": {
       "get": {
         "summary": "Health",
+        "description": "Liveness: the process answers. Whether it can serve requests is /api/ready.",
         "operationId": "health_api_health_get",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ready": {
+      "get": {
+        "summary": "Ready",
+        "description": "Readiness: the database answers and its schema is current; 503 otherwise.",
+        "operationId": "ready_api_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Readiness"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "База недоступна или схема не обновлена",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Readiness"
+                }
               }
             }
           }
@@ -251,7 +391,13 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ListItem"
+                  },
+                  "title": "Response List Applications Api Applications Get"
+                }
               }
             }
           },
@@ -271,6 +417,25 @@
         "summary": "Create Application",
         "operationId": "create_application_api_applications_post",
         "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Повтор запроса с тем же ключом вернёт уже созданную заявку",
+              "title": "Idempotency-Key"
+            },
+            "description": "Повтор запроса с тем же ключом вернёт уже созданную заявку"
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -303,7 +468,75 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Application"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analytics": {
+      "get": {
+        "summary": "Analytics",
+        "operationId": "analytics_api_analytics_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 3650,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Когорта: заявки, поданные за последние N дней",
+              "title": "Days"
+            },
+            "description": "Когорта: заявки, поданные за последние N дней"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Analytics"
+                }
               }
             }
           },
@@ -356,7 +589,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Application"
+                }
               }
             }
           },
@@ -388,6 +623,24 @@
             }
           },
           {
+            "name": "if-match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409.",
+              "title": "If-Match"
+            },
+            "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409."
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -409,7 +662,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Application"
+                }
               }
             }
           },
@@ -439,6 +694,24 @@
               "type": "string",
               "title": "Id"
             }
+          },
+          {
+            "name": "if-match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409.",
+              "title": "If-Match"
+            },
+            "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409."
           },
           {
             "name": "authorization",
@@ -472,7 +745,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Application"
+                }
               }
             }
           },
@@ -502,6 +777,24 @@
               "type": "string",
               "title": "Id"
             }
+          },
+          {
+            "name": "if-match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409.",
+              "title": "If-Match"
+            },
+            "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409."
           },
           {
             "name": "authorization",
@@ -535,7 +828,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Application"
+                }
               }
             }
           },
@@ -567,6 +862,115 @@
             }
           },
           {
+            "name": "if-match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409.",
+              "title": "If-Match"
+            },
+            "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409."
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AcceptInput"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Application"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/applications/{id}/extend": {
+      "post": {
+        "summary": "Extend Offer",
+        "description": "Give the client another OFFER_VALID_DAYS, reopening an expired offer.",
+        "operationId": "extend_offer_api_applications__id__extend_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "if-match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409.",
+              "title": "If-Match"
+            },
+            "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409."
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -588,7 +992,257 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Application"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/applications/{id}/withdraw": {
+      "post": {
+        "summary": "Withdraw",
+        "operationId": "withdraw_api_applications__id__withdraw_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "if-match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409.",
+              "title": "If-Match"
+            },
+            "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409."
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Application"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/applications/{id}/decision": {
+      "post": {
+        "summary": "Manual Decision",
+        "description": "Analyst overrides the automatic result; the auto decision stays in the decision column.",
+        "operationId": "manual_decision_api_applications__id__decision_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "if-match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409.",
+              "title": "If-Match"
+            },
+            "description": "Версия заявки (поле version), которую видел пользователь. Если заявка с тех пор изменилась, ответ 409."
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Application"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/demo/seed": {
+      "post": {
+        "summary": "Seed Demo",
+        "description": "Recreate the synthetic demo applications; real applications are left alone.",
+        "operationId": "seed_demo_api_demo_seed_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Demo",
+        "operationId": "delete_demo_api_demo_seed_delete",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedOut"
+                }
               }
             }
           },
@@ -653,20 +1307,342 @@
   },
   "components": {
     "schemas": {
-      "ApplicationInput": {
+      "AcceptInput": {
         "properties": {
+          "offer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "amount",
+                  "term"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offer",
+            "description": "Вариант условий для контрпредложения; по умолчанию первый"
+          },
+          "offer_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offer Id",
+            "description": "Номер предложения, которое видел клиент; если банк его заменил, ответ 409"
+          }
+        },
+        "type": "object",
+        "title": "AcceptInput"
+      },
+      "Analytics": {
+        "properties": {
+          "period_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Days"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Status",
+            "description": "Текущие статусы заявок"
+          },
+          "funnel": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Funnel",
+            "description": "Исторические этапы: заявка учитывается, если хоть раз достигла этапа"
+          },
+          "auto_decisions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Auto Decisions"
+          },
+          "manual": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Manual"
+          },
+          "offers": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Offers",
+            "description": "Чем закончились заявки, получившие предложение"
+          },
+          "top_factors": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Top Factors"
+          },
+          "approved_rates": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Approved Rates"
+          },
+          "accepted_rates": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Accepted Rates"
+          },
+          "avg_requested_amount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Requested Amount"
+          },
+          "avg_accepted_amount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Accepted Amount"
+          },
+          "sla": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Sla"
+          }
+        },
+        "type": "object",
+        "required": [
+          "period_days",
+          "total",
+          "by_status",
+          "funnel",
+          "auto_decisions",
+          "manual",
+          "offers",
+          "top_factors",
+          "approved_rates",
+          "accepted_rates",
+          "avg_requested_amount",
+          "avg_accepted_amount",
+          "sla"
+        ],
+        "title": "Analytics"
+      },
+      "Application": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
           "company": {
             "type": "string",
-            "maxLength": 120,
-            "minLength": 2,
             "title": "Company"
           },
           "purpose": {
             "type": "string",
-            "maxLength": 200,
-            "minLength": 3,
             "title": "Purpose"
           },
+          "amount": {
+            "type": "integer",
+            "title": "Amount"
+          },
+          "months": {
+            "type": "integer",
+            "title": "Months"
+          },
+          "available_cashflow": {
+            "type": "integer",
+            "title": "Available Cashflow"
+          },
+          "revenue": {
+            "type": "integer",
+            "title": "Revenue"
+          },
+          "existing_payments": {
+            "type": "integer",
+            "title": "Existing Payments"
+          },
+          "overdue": {
+            "type": "boolean",
+            "title": "Overdue"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "Растёт с каждым изменением; передавайте в If-Match"
+          },
+          "waiting_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "bank",
+                  "client"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting On"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision",
+            "description": "Автоматическое решение скоринга"
+          },
+          "alternative_amount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alternative Amount"
+          },
+          "explanation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Explanation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "offer_expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offer Expires At"
+          },
+          "info_request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InfoRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "previous_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Id"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            },
+            "type": "array",
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "company",
+          "purpose",
+          "amount",
+          "months",
+          "available_cashflow",
+          "revenue",
+          "existing_payments",
+          "overdue",
+          "status",
+          "version",
+          "events"
+        ],
+        "title": "Application"
+      },
+      "ApplicationInput": {
+        "properties": {
           "amount": {
             "type": "integer",
             "maximum": 20000000.0,
@@ -689,53 +1665,391 @@
             "type": "integer",
             "maximum": 1000000000.0,
             "exclusiveMinimum": 0.0,
-            "title": "Available Cashflow"
+            "title": "Available Cashflow",
+            "description": "Выручка за вычетом операционных расходов и налогов, до платежей по действующим кредитам"
           },
           "existing_payments": {
             "type": "integer",
             "maximum": 1000000000.0,
             "minimum": 0.0,
-            "title": "Existing Payments"
+            "title": "Existing Payments",
+            "description": "Ежемесячные платежи по действующим кредитам и лизингу"
           },
           "overdue": {
             "type": "boolean",
             "title": "Overdue",
             "default": false
+          },
+          "company": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Company"
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 3,
+            "title": "Purpose"
+          },
+          "previous_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Id",
+            "description": "Заявка, вместо которой подаётся эта (повторная подача)"
           }
         },
         "type": "object",
         "required": [
-          "company",
-          "purpose",
           "amount",
           "months",
           "revenue",
           "available_cashflow",
-          "existing_payments"
+          "existing_payments",
+          "company",
+          "purpose"
         ],
         "title": "ApplicationInput"
       },
+      "Assessment": {
+        "properties": {
+          "score": {
+            "type": "integer",
+            "title": "Score"
+          },
+          "base_score": {
+            "type": "integer",
+            "title": "Base Score"
+          },
+          "reference_rate": {
+            "type": "number",
+            "title": "Reference Rate",
+            "description": "Базовая ставка, по которой считается нагрузка"
+          },
+          "monthly_payment": {
+            "type": "integer",
+            "title": "Monthly Payment",
+            "description": "Платёж по запрошенным условиям по базовой ставке"
+          },
+          "payment_to_cashflow": {
+            "type": "number",
+            "title": "Payment To Cashflow"
+          },
+          "contributions": {
+            "items": {
+              "$ref": "#/components/schemas/Contribution"
+            },
+            "type": "array",
+            "title": "Contributions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "score",
+          "base_score",
+          "reference_rate",
+          "monthly_payment",
+          "payment_to_cashflow",
+          "contributions"
+        ],
+        "title": "Assessment"
+      },
       "Clarification": {
         "properties": {
-          "available_cashflow": {
-            "type": "integer",
-            "maximum": 1000000000.0,
-            "exclusiveMinimum": 0.0,
-            "title": "Available Cashflow"
-          },
           "note": {
             "type": "string",
             "maxLength": 300,
             "minLength": 3,
             "title": "Note"
+          },
+          "available_cashflow": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available Cashflow"
+          },
+          "revenue": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue"
+          },
+          "existing_payments": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Existing Payments"
+          },
+          "overdue": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overdue"
           }
         },
         "type": "object",
         "required": [
-          "available_cashflow",
           "note"
         ],
         "title": "Clarification"
+      },
+      "Contribution": {
+        "properties": {
+          "factor": {
+            "type": "string",
+            "title": "Factor"
+          },
+          "points": {
+            "type": "integer",
+            "title": "Points",
+            "description": "Изменение балла: 0 или отрицательное число"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "factor",
+          "points"
+        ],
+        "title": "Contribution"
+      },
+      "DeletedOut": {
+        "properties": {
+          "deleted": {
+            "type": "integer",
+            "title": "Deleted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "title": "DeletedOut"
+      },
+      "Event": {
+        "properties": {
+          "occurred_at": {
+            "type": "string",
+            "title": "Occurred At"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "occurred_at",
+          "actor",
+          "action",
+          "description"
+        ],
+        "title": "Event"
+      },
+      "Explanation": {
+        "properties": {
+          "policy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Version"
+          },
+          "reference_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Rate"
+          },
+          "rate_tiers": {
+            "anyOf": [
+              {
+                "items": {
+                  "prefixItems": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "type": "array",
+                  "maxItems": 2,
+                  "minItems": 2
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Tiers"
+          },
+          "factors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Factors",
+            "default": []
+          },
+          "assessment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Assessment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Расчёт риска по запрошенным условиям"
+          },
+          "requested": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Terms"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Запрошенные условия; если не одобрены — по базовой ставке"
+          },
+          "offer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Terms"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Выданное предложение на запрошенных условиях (одобрение)"
+          },
+          "offers": {
+            "items": {
+              "$ref": "#/components/schemas/Terms"
+            },
+            "type": "array",
+            "title": "Offers",
+            "description": "Выданные альтернативные предложения (контрпредложение)",
+            "default": []
+          },
+          "how_to_improve": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "How To Improve",
+            "default": []
+          },
+          "accepted_terms": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Terms"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manual_override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManualOverride"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disclaimer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclaimer"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "Explanation"
       },
       "HTTPValidationError": {
         "properties": {
@@ -750,6 +2064,200 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "Health": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "database": {
+            "type": "string",
+            "enum": [
+              "postgres",
+              "sqlite"
+            ],
+            "title": "Database"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "database"
+        ],
+        "title": "Health"
+      },
+      "InfoRequest": {
+        "properties": {
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Fields",
+            "default": [
+              "available_cashflow"
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "InfoRequest"
+      },
+      "ListItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "company": {
+            "type": "string",
+            "title": "Company"
+          },
+          "amount": {
+            "type": "integer",
+            "title": "Amount"
+          },
+          "months": {
+            "type": "integer",
+            "title": "Months"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "offer_expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offer Expires At"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "waiting_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "bank",
+                  "client"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting On"
+          },
+          "in_status_minutes": {
+            "type": "integer",
+            "title": "In Status Minutes"
+          },
+          "sla_due_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sla Due At"
+          },
+          "sla_breached": {
+            "type": "boolean",
+            "title": "Sla Breached"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "company",
+          "amount",
+          "months",
+          "status",
+          "created_at",
+          "updated_at",
+          "version",
+          "in_status_minutes",
+          "sla_breached"
+        ],
+        "title": "ListItem"
+      },
+      "LoanTerms": {
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "maximum": 20000000.0,
+            "minimum": 100000.0,
+            "title": "Amount"
+          },
+          "months": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 6.0,
+            "title": "Months"
+          },
+          "revenue": {
+            "type": "integer",
+            "maximum": 1000000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Revenue"
+          },
+          "available_cashflow": {
+            "type": "integer",
+            "maximum": 1000000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Available Cashflow",
+            "description": "Выручка за вычетом операционных расходов и налогов, до платежей по действующим кредитам"
+          },
+          "existing_payments": {
+            "type": "integer",
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Existing Payments",
+            "description": "Ежемесячные платежи по действующим кредитам и лизингу"
+          },
+          "overdue": {
+            "type": "boolean",
+            "title": "Overdue",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "amount",
+          "months",
+          "revenue",
+          "available_cashflow",
+          "existing_payments"
+        ],
+        "title": "LoanTerms"
+      },
       "LoginInput": {
         "properties": {
           "role": {
@@ -762,6 +2270,7 @@
           },
           "password": {
             "type": "string",
+            "maxLength": 200,
             "title": "Password"
           }
         },
@@ -772,6 +2281,308 @@
         ],
         "title": "LoginInput"
       },
+      "LoginOut": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type"
+          },
+          "warning": {
+            "type": "string",
+            "title": "Warning"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "access_token",
+          "token_type",
+          "warning"
+        ],
+        "title": "LoginOut"
+      },
+      "ManualDecision": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "title": "Decision"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 10,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision",
+          "reason"
+        ],
+        "title": "ManualDecision"
+      },
+      "ManualOverride": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "title": "Decision"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "auto_decision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Decision"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "decision",
+          "reason"
+        ],
+        "title": "ManualOverride"
+      },
+      "Precheck": {
+        "properties": {
+          "policy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Version"
+          },
+          "reference_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Rate"
+          },
+          "rate_tiers": {
+            "anyOf": [
+              {
+                "items": {
+                  "prefixItems": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "type": "array",
+                  "maxItems": 2,
+                  "minItems": 2
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Tiers"
+          },
+          "factors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Factors",
+            "default": []
+          },
+          "assessment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Assessment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Расчёт риска по запрошенным условиям"
+          },
+          "requested": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Terms"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Запрошенные условия; если не одобрены — по базовой ставке"
+          },
+          "offer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Terms"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Выданное предложение на запрошенных условиях (одобрение)"
+          },
+          "offers": {
+            "items": {
+              "$ref": "#/components/schemas/Terms"
+            },
+            "type": "array",
+            "title": "Offers",
+            "description": "Выданные альтернативные предложения (контрпредложение)",
+            "default": []
+          },
+          "how_to_improve": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "How To Improve",
+            "default": []
+          },
+          "accepted_terms": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Terms"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manual_override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManualOverride"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disclaimer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclaimer"
+          },
+          "score": {
+            "type": "integer",
+            "title": "Score"
+          },
+          "decision": {
+            "type": "string",
+            "title": "Decision"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "score",
+          "decision"
+        ],
+        "title": "Precheck"
+      },
+      "Readiness": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "database": {
+            "type": "string",
+            "enum": [
+              "postgres",
+              "sqlite"
+            ],
+            "title": "Database"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Version"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "database"
+        ],
+        "title": "Readiness"
+      },
       "RequestInfo": {
         "properties": {
           "reason": {
@@ -779,6 +2590,20 @@
             "maxLength": 300,
             "minLength": 5,
             "title": "Reason"
+          },
+          "fields": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "available_cashflow",
+                "revenue",
+                "existing_payments",
+                "overdue"
+              ]
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Fields"
           }
         },
         "type": "object",
@@ -786,6 +2611,215 @@
           "reason"
         ],
         "title": "RequestInfo"
+      },
+      "ScheduleInput": {
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "maximum": 20000000.0,
+            "minimum": 100000.0,
+            "title": "Amount"
+          },
+          "months": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 6.0,
+            "title": "Months"
+          },
+          "annual_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.01,
+            "title": "Annual Rate",
+            "default": 0.22
+          },
+          "prepay_month": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 60.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prepay Month",
+            "description": "Месяц досрочного погашения"
+          },
+          "prepay_amount": {
+            "type": "integer",
+            "maximum": 20000000.0,
+            "minimum": 0.0,
+            "title": "Prepay Amount",
+            "default": 0
+          },
+          "prepay_mode": {
+            "type": "string",
+            "enum": [
+              "term",
+              "payment"
+            ],
+            "title": "Prepay Mode",
+            "description": "term — сократить срок, payment — уменьшить платёж",
+            "default": "term"
+          }
+        },
+        "type": "object",
+        "required": [
+          "amount",
+          "months"
+        ],
+        "title": "ScheduleInput"
+      },
+      "ScheduleOut": {
+        "properties": {
+          "months": {
+            "type": "integer",
+            "title": "Months"
+          },
+          "total_paid": {
+            "type": "integer",
+            "title": "Total Paid"
+          },
+          "overpayment": {
+            "type": "integer",
+            "title": "Overpayment"
+          },
+          "annual_rate": {
+            "type": "number",
+            "title": "Annual Rate"
+          },
+          "monthly_payment": {
+            "type": "integer",
+            "title": "Monthly Payment"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScheduleSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Тот же кредит без досрочного погашения"
+          },
+          "savings": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Savings"
+          },
+          "monthly_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly After",
+            "description": "Платёж в месяц после досрочного погашения"
+          }
+        },
+        "type": "object",
+        "required": [
+          "months",
+          "total_paid",
+          "overpayment",
+          "annual_rate",
+          "monthly_payment",
+          "rows"
+        ],
+        "title": "ScheduleOut"
+      },
+      "ScheduleRow": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "title": "Month"
+          },
+          "payment": {
+            "type": "integer",
+            "title": "Payment"
+          },
+          "principal": {
+            "type": "integer",
+            "title": "Principal"
+          },
+          "interest": {
+            "type": "integer",
+            "title": "Interest"
+          },
+          "prepayment": {
+            "type": "integer",
+            "title": "Prepayment"
+          },
+          "balance": {
+            "type": "integer",
+            "title": "Balance"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "payment",
+          "principal",
+          "interest",
+          "prepayment",
+          "balance"
+        ],
+        "title": "ScheduleRow"
+      },
+      "ScheduleSummary": {
+        "properties": {
+          "months": {
+            "type": "integer",
+            "title": "Months"
+          },
+          "total_paid": {
+            "type": "integer",
+            "title": "Total Paid"
+          },
+          "overpayment": {
+            "type": "integer",
+            "title": "Overpayment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "months",
+          "total_paid",
+          "overpayment"
+        ],
+        "title": "ScheduleSummary"
+      },
+      "SeedOut": {
+        "properties": {
+          "created": {
+            "type": "integer",
+            "title": "Created"
+          }
+        },
+        "type": "object",
+        "required": [
+          "created"
+        ],
+        "title": "SeedOut"
       },
       "SimulationInput": {
         "properties": {
@@ -819,6 +2853,20 @@
             "minimum": 0.0,
             "title": "Seasonality",
             "description": "Процент сезонного падения свободного потока"
+          },
+          "start_month": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 12.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Month",
+            "description": "Календарный месяц первого платежа (1 — январь); по умолчанию следующий месяц"
           }
         },
         "type": "object",
@@ -830,6 +2878,248 @@
           "seasonality"
         ],
         "title": "SimulationInput"
+      },
+      "SimulationMonth": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "title": "Month",
+            "description": "Номер месяца с начала кредита"
+          },
+          "calendar_month": {
+            "type": "integer",
+            "title": "Calendar Month",
+            "description": "Календарный месяц, 1 — январь"
+          },
+          "winter": {
+            "type": "boolean",
+            "title": "Winter"
+          },
+          "cashflow": {
+            "type": "integer",
+            "title": "Cashflow"
+          },
+          "loan_payment": {
+            "type": "integer",
+            "title": "Loan Payment",
+            "description": "Платёж по графику; 0 после погашения кредита"
+          },
+          "existing_payments": {
+            "type": "integer",
+            "title": "Existing Payments"
+          },
+          "balance_after_debt": {
+            "type": "integer",
+            "title": "Balance After Debt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "calendar_month",
+          "winter",
+          "cashflow",
+          "loan_payment",
+          "existing_payments",
+          "balance_after_debt"
+        ],
+        "title": "SimulationMonth"
+      },
+      "SimulationOut": {
+        "properties": {
+          "annual_rate": {
+            "type": "number",
+            "title": "Annual Rate",
+            "description": "Базовая ставка симуляции; итоговая ставка зависит от скоринга"
+          },
+          "monthly_payment": {
+            "type": "integer",
+            "title": "Monthly Payment"
+          },
+          "base_load": {
+            "type": "number",
+            "title": "Base Load"
+          },
+          "stress_load": {
+            "type": "number",
+            "title": "Stress Load"
+          },
+          "start_month": {
+            "type": "integer",
+            "title": "Start Month"
+          },
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/SimulationMonth"
+            },
+            "type": "array",
+            "title": "Timeline"
+          },
+          "safe_under_stress": {
+            "type": "boolean",
+            "title": "Safe Under Stress"
+          },
+          "disclaimer": {
+            "type": "string",
+            "title": "Disclaimer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "annual_rate",
+          "monthly_payment",
+          "base_load",
+          "stress_load",
+          "start_month",
+          "timeline",
+          "safe_under_stress",
+          "disclaimer"
+        ],
+        "title": "SimulationOut"
+      },
+      "Terms": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "requested — запрошенные условия, amount — меньше сумма, term — дольше срок"
+          },
+          "amount": {
+            "type": "integer",
+            "title": "Amount"
+          },
+          "months": {
+            "type": "integer",
+            "title": "Months"
+          },
+          "annual_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annual Rate",
+            "description": "Фактическая ставка этих условий"
+          },
+          "monthly_payment": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Payment"
+          },
+          "total_paid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Paid"
+          },
+          "overpayment": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overpayment"
+          },
+          "offer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offer Id",
+            "description": "Есть только у выданного предложения; его условия не меняются"
+          },
+          "policy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Version"
+          },
+          "issued_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued At"
+          },
+          "basis": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "manual"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis",
+            "description": "auto — по скорингу, manual — решение сотрудника"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score",
+            "description": "Оценка риска этих условий (для альтернатив)"
+          },
+          "payment_to_cashflow": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment To Cashflow",
+            "description": "Нагрузка этих условий по базовой ставке (для альтернатив)"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "id",
+          "amount",
+          "months"
+        ],
+        "title": "Terms"
       },
       "ValidationError": {
         "properties": {

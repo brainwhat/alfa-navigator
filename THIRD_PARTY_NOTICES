@@ -1,7 +1,7 @@
 Python 3.12.10 — Python Software Foundation License.
-FastAPI 0.115.12 — MIT.
+FastAPI 0.143.0 — MIT.
 Starlette and Pydantic — MIT.
-Uvicorn 0.34.2 — BSD-3-Clause.
+Uvicorn 0.54.0 — BSD-3-Clause.
 httpx 0.28.1 — BSD-3-Clause.
 pytest 8.3.5 — MIT.
 SQLite — public domain.

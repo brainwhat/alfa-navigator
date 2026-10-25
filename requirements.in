@@ -1,0 +1,7 @@
+# Прямые зависимости приложения. requirements.txt собирается из этого файла:
+#   uv pip compile requirements.in --python-version 3.12 --no-header -o requirements.txt
+fastapi==0.143.0
+starlette==1.7.0
+uvicorn==0.54.0
+pydantic==2.14.1
+psycopg[binary]==3.3.6

@@ -42,8 +42,11 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-      - run: python -m pip install -r requirements.txt
+          cache-dependency-path: requirements*.txt
+      - run: python -m pip install -r requirements-dev.txt
       - run: python -m pytest -q
+      - name: OpenAPI snapshot is current
+        run: python scripts/export_openapi.py --check
 
       - name: Start app on runner
         env:
@@ -55,9 +58,21 @@ jobs:
         if: failure()
         run: cat "$RUNNER_TEMP/uvicorn.log"
 
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pip-audit==2.10.1
+      # requirements.txt pins every transitive package, so the audit checks exactly what gets deployed
+      - run: pip-audit --strict --no-deps -r requirements.txt
+
   deploy:
     name: Deploy to Vercel
-    needs: test
+    needs: [test, audit]
     # Fork PRs get no secrets, so they are only tested.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
@@ -118,5 +133,13 @@ jobs:
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "### Vercel ($TARGET): $url" >> "$GITHUB_STEP_SUMMARY"
 
+      # Production gets a read-only check: readiness, logins and a database read.
+      # The full write scenario runs on preview only once preview has its own database (README, «База данных»).
       - name: Smoke test deployment
-        run: python scripts/smoke.py "${{ steps.deploy.outputs.url }}" $([ "$TARGET" = production ] && echo --strict)
+        env:
+          PREVIEW_DATABASE_ISOLATED: ${{ vars.PREVIEW_DATABASE_ISOLATED }}
+        run: |
+          flags=""
+          [ "$TARGET" = production ] && flags="--strict"
+          [ "$TARGET" = preview ] && [ "$PREVIEW_DATABASE_ISOLATED" = true ] && flags="--full"
+          python scripts/smoke.py "${{ steps.deploy.outputs.url }}" $flags

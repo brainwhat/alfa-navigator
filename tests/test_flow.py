@@ -1,21 +1,4 @@
-import os
-import tempfile
-f=tempfile.NamedTemporaryFile(delete=False)
-f.close()
-os.environ['DB_PATH']=f.name
-from fastapi.testclient import TestClient
-from app.main import app
-client=TestClient(app)
-CLIENT={'Authorization':'Bearer demo-client-change-me'}
-BANK={'Authorization':'Bearer demo-bank-change-me'}
-def payload(**overrides):
-    data=dict(company='ООО Тест Кофе',purpose='Закупка оборудования',amount=1_000_000,months=36,revenue=1_000_000,available_cashflow=250_000,existing_payments=0,overdue=False)
-    data.update(overrides)
-    return data
-def create(**kw):
-    r=client.post('/api/applications',json=payload(**kw),headers=CLIENT)
-    assert r.status_code==201,r.text
-    return r.json()
+from conftest import client, CLIENT, BANK, payload, create, evaluate, terms
 def test_login_roles():
     assert client.post('/api/demo/login',json={'role':'client','password':'wrong'}).status_code==401
     assert client.get('/api/applications').status_code==401
@@ -52,8 +35,6 @@ def test_simulator_and_company_stub():
 def test_validation_and_reset_closed():
     assert client.post('/api/applications',json=payload(amount=-1),headers=CLIENT).status_code==422
     assert client.post('/api/demo/reset',headers=BANK).status_code==403
-def evaluate(id):
-    return client.post('/api/applications/'+id+'/evaluate',headers=BANK).json()
 def test_offers_and_choice():
     a=create(amount=3_000_000,months=12,available_cashflow=240_000,existing_payments=30_000,revenue=1_600_000)
     d=evaluate(a['id'])
@@ -95,10 +76,6 @@ def test_manual_decision():
     assert client.post('/api/applications/'+a['id']+'/decision',json=reason,headers=BANK).status_code==409
     r=client.post('/api/applications/'+a['id']+'/accept',headers=CLIENT).json()
     assert r['status']=='accepted' and r['explanation']['accepted_terms']['amount']==1_000_000
-def terms(**overrides):
-    data=payload(**overrides)
-    del data['company'],data['purpose']
-    return data
 def test_precheck_matches_scoring_and_saves_nothing():
     before=len(client.get('/api/applications',headers=BANK).json())
     t=terms(amount=3_000_000,months=12,available_cashflow=240_000,existing_payments=30_000,revenue=1_600_000)
@@ -106,7 +83,9 @@ def test_precheck_matches_scoring_and_saves_nothing():
     p=client.post('/api/precheck',json=t,headers=CLIENT).json()
     assert len(client.get('/api/applications',headers=BANK).json())==before
     d=evaluate(create(**t)['id'])
-    assert (p['decision'],p['score'],p['offers'])==(d['status'],d['score'],d['explanation']['offers'])
+    unissued=lambda offers:[{k:v for k,v in o.items() if k not in ('offer_id','policy_version','issued_at','basis')} for o in offers]
+    assert (p['decision'],p['score'],p['offers'])==(d['status'],d['score'],unissued(d['explanation']['offers']))
+    assert all(o['offer_id'] and o['basis']=='auto' for o in d['explanation']['offers'])
     assert p['requested']['overpayment']==p['requested']['total_paid']-3_000_000>0
     assert client.post('/api/precheck',json=terms(amount=-1),headers=CLIENT).status_code==422
 def test_schedule():
@@ -136,10 +115,11 @@ def test_risk_based_rate():
     import app.main as m
     assert [m.rate_for(s) for s in (85,70,65,50)]==[0.18,0.20,0.22,0.26]
     best=evaluate(create()['id'])
-    assert best['score']==85 and best['explanation']['annual_rate']==0.18
-    assert best['explanation']['requested']['monthly_payment']==m.payment(1_000_000,36,0.18)
+    assert best['score']==85 and best['explanation']['offer']['annual_rate']==0.18
+    assert best['explanation']['offer']['monthly_payment']==m.payment(1_000_000,36,0.18)
+    assert best['explanation']['assessment']['reference_rate']==0.22 and best['explanation']['assessment']['monthly_payment']==m.payment(1_000_000,36)
     weaker=evaluate(create(amount=5_000_000,months=60,revenue=1_000_000,available_cashflow=250_000)['id'])
-    assert weaker['score']==70 and weaker['explanation']['annual_rate']==0.20
+    assert weaker['score']==70 and weaker['explanation']['offer']['annual_rate']==0.20
     r=client.post('/api/applications/'+best['id']+'/accept',headers=CLIENT).json()
     assert r['explanation']['accepted_terms']['annual_rate']==0.18
     s=client.post('/api/schedule',json={'amount':1_000_000,'months':36,'annual_rate':0.18},headers=CLIENT).json()
@@ -179,7 +159,7 @@ def test_analytics():
     assert funnel['Приняли условия']-old['Приняли условия']==1
     assert any(f['factor']=='В синтетической истории указаны просрочки' for f in r['top_factors'])
     assert r['sla']['responses']-before['sla']['responses']==2 and r['sla']['waiting_now']>=1
-    assert r['sla']['within_sla_pct']==100 and r['sla']['breached_now']==0
+    assert r['sla']['breached']==before['sla']['breached'] and r['sla']['breached_now']==before['sla']['breached_now']
 def test_unapproved_terms_shown_at_reference_rate():
     d=evaluate(create(overdue=True)['id'])
     assert d['explanation']['requested']['annual_rate']==0.22

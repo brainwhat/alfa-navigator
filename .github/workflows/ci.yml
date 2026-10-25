@@ -83,11 +83,18 @@ jobs:
       - name: Deploy
         id: deploy
         run: |
-          url=$(vercel deploy --prebuilt $([ "$TARGET" = production ] && echo --prod) --token="$VERCEL_TOKEN")
+          deploy_url=$(vercel deploy --prebuilt $([ "$TARGET" = production ] && echo --prod) --token="$VERCEL_TOKEN")
+          url=$deploy_url
           # The unique deployment URL sits behind Vercel Authentication; production also gets a public alias.
           if [ "$TARGET" = production ]; then
-            alias=$(vercel inspect "$url" --token="$VERCEL_TOKEN" 2>&1 | sed -n '/Aliases/,/Builds/p' | grep -oE 'https://[^ ]+' | head -1)
-            url=${alias:-$url}
+            for attempt in 1 2 3 4 5 6; do
+              alias=$(vercel inspect "$url" --format=json --token="$VERCEL_TOKEN" 2>/dev/null \
+                | python -c "import json,sys; a=json.load(sys.stdin).get('aliases') or ['']; print(a[0])" || true)
+              [ -n "$alias" ] && break
+              sleep 5
+            done
+            url=${alias:+https://$alias}
+            url=${url:-$deploy_url}
           fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "### Vercel ($TARGET): $url" >> "$GITHUB_STEP_SUMMARY"

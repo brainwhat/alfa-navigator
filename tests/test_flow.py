@@ -185,3 +185,51 @@ def test_unapproved_terms_shown_at_reference_rate():
     assert d['explanation']['requested']['annual_rate']==0.22
     r=client.post('/api/applications/'+d['id']+'/decision',json={'decision':'approved','reason':'Просрочка техническая, подтверждена'},headers=BANK).json()
     assert r['explanation']['requested']['annual_rate']==0.26
+def test_clarify_several_fields():
+    a=create(amount=3_000_000,months=12,available_cashflow=240_000,existing_payments=30_000,revenue=1_600_000)
+    id=a['id']
+    assert client.post('/api/applications/'+id+'/request-info',json={'reason':'Уточните финансы','fields':[]},headers=BANK).status_code==422
+    r=client.post('/api/applications/'+id+'/request-info',json={'reason':'Уточните финансы','fields':['revenue','existing_payments','overdue']},headers=BANK).json()
+    assert r['info_request']['fields']==['revenue','existing_payments','overdue']
+    assert client.post('/api/applications/'+id+'/clarify',json={'note':'Уточнили','revenue':2_000_000},headers=CLIENT).status_code==422
+    assert client.post('/api/applications/'+id+'/clarify',json={'note':'Уточнили','revenue':2_000_000,'existing_payments':0,'overdue':False,'available_cashflow':500_000},headers=CLIENT).status_code==422
+    r=client.post('/api/applications/'+id+'/clarify',json={'note':'Уточнили','revenue':2_000_000,'existing_payments':0,'overdue':False},headers=CLIENT).json()
+    assert r['status']=='clarified' and r['info_request'] is None
+    assert (r['revenue'],r['existing_payments'],r['overdue'],r['available_cashflow'])==(2_000_000,0,0,240_000)
+    assert 'платежи по действующим долгам: 30 000 ₽ → 0 ₽' in r['events'][-1]['description']
+def test_clarify_defaults_to_cashflow():
+    id=create()['id']
+    client.post('/api/applications/'+id+'/request-info',json={'reason':'Уточните финансы'},headers=BANK)
+    assert client.post('/api/applications/'+id+'/clarify',json={'available_cashflow':300_000,'note':'Уточнено'},headers=CLIENT).json()['available_cashflow']==300_000
+def test_prepayment():
+    base={'amount':1_000_000,'months':24}
+    plain=client.post('/api/schedule',json=base,headers=CLIENT).json()
+    term=client.post('/api/schedule',json={**base,'prepay_month':6,'prepay_amount':300_000},headers=CLIENT).json()
+    assert term['months']<24 and term['savings']>0 and term['monthly_after']==plain['monthly_payment']
+    assert term['rows'][5]['prepayment']==300_000 and term['rows'][-1]['balance']==0
+    assert sum(r['principal']+r['prepayment'] for r in term['rows'])==1_000_000
+    assert term['baseline']['overpayment']==plain['overpayment']==term['overpayment']+term['savings']
+    pay=client.post('/api/schedule',json={**base,'prepay_month':6,'prepay_amount':300_000,'prepay_mode':'payment'},headers=CLIENT).json()
+    assert pay['months']==24 and pay['monthly_after']<plain['monthly_payment'] and 0<pay['savings']<term['savings']
+    full=client.post('/api/schedule',json={**base,'prepay_month':3,'prepay_amount':5_000_000},headers=CLIENT).json()
+    assert full['months']==3 and full['rows'][-1]['balance']==0
+    assert client.post('/api/schedule',json={**base,'prepay_month':24,'prepay_amount':1000},headers=CLIENT).status_code==422
+def test_demo_seed():
+    import app.main as m
+    from datetime import datetime, timezone
+    assert client.post('/api/demo/seed',headers=CLIENT).status_code==403
+    real=create(company='ООО Настоящая заявка')
+    assert client.post('/api/demo/seed',headers=BANK).json()['created']==len(m.DEMO_SCENARIOS)
+    items=client.get('/api/applications',headers=BANK).json()
+    demo=[x for x in items if x['id'].startswith('DEMO')]
+    statuses={x['status'] for x in demo}
+    assert {'submitted','needs_info','clarified','approved','counteroffer','accepted','rejected','expired','withdrawn'}<=statuses
+    assert any(x['sla_breached'] for x in demo)
+    assert all(x['updated_at']<=datetime.now(timezone.utc).isoformat() for x in demo)
+    a=client.get('/api/analytics',headers=BANK).json()
+    assert {r['rate'] for r in a['approved_rates']}>={0.18,0.20,0.22,0.26} and a['offers']['expired']>=2
+    assert client.post('/api/demo/seed',headers=BANK).status_code==200
+    assert len([x for x in client.get('/api/applications',headers=BANK).json() if x['id'].startswith('DEMO')])==len(demo)
+    assert client.delete('/api/demo/seed',headers=BANK).json()['deleted']==len(demo)
+    ids=[x['id'] for x in client.get('/api/applications',headers=BANK).json()]
+    assert real['id'] in ids and not any(i.startswith('DEMO') for i in ids)

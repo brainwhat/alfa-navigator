@@ -6,6 +6,7 @@ import sqlite3
 import statistics
 from collections import Counter
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
@@ -78,19 +79,31 @@ class PgConnection:
     def execute(self, sql, params=()):
         return self.raw.execute(sql.replace('?', '%s'), params)
 
+_open_connection = ContextVar('open_connection', default=None)
+
 @contextmanager
 def conn():
+    """Open a connection, or reuse the one already open in this context so nested calls share a transaction."""
+    if _open_connection.get() is not None:
+        yield _open_connection.get()
+        return
     if DATABASE_URL:
         # prepare_threshold=None: Neon's pooled endpoint runs PgBouncer in transaction mode.
         with psycopg.connect(DATABASE_URL, row_factory=dict_row, prepare_threshold=None) as connection:
-            yield PgConnection(connection)
+            token = _open_connection.set(PgConnection(connection))
+            try:
+                yield _open_connection.get()
+            finally:
+                _open_connection.reset(token)
         return
     connection = sqlite3.connect(DB)
     connection.row_factory = sqlite3.Row
+    token = _open_connection.set(connection)
     try:
         yield connection
         connection.commit()
     finally:
+        _open_connection.reset(token)
         connection.close()
 
 with conn() as c:
@@ -106,10 +119,12 @@ with conn() as c:
     c.execute(f'''CREATE TABLE IF NOT EXISTS events (id {event_id},
      application_id TEXT NOT NULL, occurred_at TEXT NOT NULL, actor TEXT NOT NULL,
      action TEXT NOT NULL, description TEXT NOT NULL)''')
-    if DATABASE_URL:
-        c.execute('ALTER TABLE applications ADD COLUMN IF NOT EXISTS offer_expires_at TEXT')
-    elif 'offer_expires_at' not in {col[1] for col in c.execute('PRAGMA table_info(applications)')}:
-        c.execute('ALTER TABLE applications ADD COLUMN offer_expires_at TEXT')
+    existing = set() if DATABASE_URL else {col[1] for col in c.execute('PRAGMA table_info(applications)')}
+    for column in ('offer_expires_at', 'info_request'):
+        if DATABASE_URL:
+            c.execute(f'ALTER TABLE applications ADD COLUMN IF NOT EXISTS {column} TEXT')
+        elif column not in existing:
+            c.execute(f'ALTER TABLE applications ADD COLUMN {column} TEXT')
 
 # Reference rate: scoring measures the debt load at this rate, then the score sets the actual price.
 RATE = 0.22
@@ -124,17 +139,26 @@ def payment(amount:int, months:int, rate:float=RATE) -> int:
     r = rate / 12
     return round(amount * r / (1 - (1 + r) ** (-months)))
 
-def amortization(amount:int, months:int, rate:float=RATE):
-    """Annuity schedule; the last payment absorbs rounding so the balance closes at zero."""
+def amortization(amount:int, months:int, rate:float=RATE, prepay=None):
+    """Annuity schedule; the last payment absorbs rounding so the balance closes at zero.
+
+    prepay=(month, amount, mode) adds an early repayment on top of that month's payment;
+    afterwards the payment stays and the term shrinks ('term'), or the payment is recalculated
+    for the remaining months ('payment')."""
     r = rate / 12
     monthly = payment(amount, months, rate)
     balance = amount
     rows = []
-    for m in range(1, months + 1):
+    m = 0
+    while balance > 0:
+        m += 1
         interest = round(balance * r)
-        principal = balance if m == months else monthly - interest
-        balance -= principal
-        rows.append({'month':m, 'payment':principal+interest, 'principal':principal, 'interest':interest, 'balance':balance})
+        principal = balance if m >= months else min(balance, monthly - interest)
+        extra = min(prepay[1], balance - principal) if prepay and m == prepay[0] else 0
+        balance -= principal + extra
+        rows.append({'month':m, 'payment':principal+interest, 'principal':principal, 'interest':interest, 'prepayment':extra, 'balance':balance})
+        if extra and prepay[2] == 'payment' and m < months:
+            monthly = payment(balance, months - m, rate)
     return rows
 
 class LoanTerms(BaseModel):
@@ -149,33 +173,48 @@ class ApplicationInput(LoanTerms):
     company: str = Field(min_length=2, max_length=120)
     purpose: str = Field(min_length=3, max_length=200)
 
+CLARIFY_FIELDS = {'available_cashflow':'свободный денежный поток', 'revenue':'месячная выручка',
+                  'existing_payments':'платежи по действующим долгам', 'overdue':'наличие просрочек'}
+ClarifyField = Literal['available_cashflow','revenue','existing_payments','overdue']
+
 class RequestInfo(BaseModel):
     reason: str = Field(min_length=5, max_length=300)
+    fields: list[ClarifyField] = Field(default_factory=lambda: ['available_cashflow'], min_length=1)
 
 class Clarification(BaseModel):
-    available_cashflow: int = Field(gt=0, le=1_000_000_000)
     note: str = Field(min_length=3, max_length=300)
+    available_cashflow: int | None = Field(None, gt=0, le=1_000_000_000)
+    revenue: int | None = Field(None, gt=0, le=1_000_000_000)
+    existing_payments: int | None = Field(None, ge=0, le=1_000_000_000)
+    overdue: bool | None = None
+
+# The demo seeder backdates its history by moving this clock; requests use real time.
+_clock = ContextVar('clock', default=None)
+
+def utcnow() -> datetime:
+    return _clock.get() or datetime.now(timezone.utc)
 
 def now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return utcnow().isoformat()
 
-def event(c, id, actor, action, description):
+def event(c, id, actor, action, description, at=None):
     c.execute('INSERT INTO events (application_id, occurred_at, actor, action, description) VALUES (?,?,?,?,?)',
-              (id, now(), actor, action, description))
+              (id, at or now(), actor, action, description))
 
 OFFER_VALID_DAYS = float(os.getenv('OFFER_VALID_DAYS', '7'))
 OPEN_OFFER = ('approved', 'counteroffer')
 
 def offer_deadline() -> str:
-    return (datetime.now(timezone.utc) + timedelta(days=OFFER_VALID_DAYS)).isoformat()
+    return (utcnow() + timedelta(days=OFFER_VALID_DAYS)).isoformat()
 
 def expire_offers(c):
     """Close offers past their deadline; runs lazily before applications are read or changed."""
     at = now()
-    for row in c.execute("SELECT id FROM applications WHERE status IN ('approved','counteroffer') AND offer_expires_at < ?", (at,)).fetchall():
+    for row in c.execute("SELECT id, offer_expires_at FROM applications WHERE status IN ('approved','counteroffer') AND offer_expires_at < ?", (at,)).fetchall():
+        deadline = row['offer_expires_at']
         # the status guard keeps concurrent requests from logging the expiry twice
-        if c.execute("UPDATE applications SET status='expired', updated_at=? WHERE id=? AND status IN ('approved','counteroffer')", (at, row['id'])).rowcount:
-            event(c, row['id'], 'system', 'expired', 'Срок действия предложения истёк')
+        if c.execute("UPDATE applications SET status='expired', updated_at=? WHERE id=? AND status IN ('approved','counteroffer')", (deadline, row['id'])).rowcount:
+            event(c, row['id'], 'system', 'expired', 'Срок действия предложения истёк', at=deadline)
 
 def get_row(c, id):
     expire_offers(c)
@@ -187,6 +226,7 @@ def enriched(c, id):
     row = get_row(c, id)
     row['events'] = [dict(x) for x in c.execute('SELECT occurred_at, actor, action, description FROM events WHERE application_id=? ORDER BY id', (id,))]
     if row['explanation']: row['explanation'] = json.loads(row['explanation'])
+    if row.get('info_request'): row['info_request'] = json.loads(row['info_request'])
     return row
 
 APPROVE_SCORE = 65
@@ -308,13 +348,29 @@ class ScheduleInput(BaseModel):
     amount: int = Field(ge=100_000, le=20_000_000)
     months: int = Field(ge=6, le=60)
     annual_rate: float = Field(RATE, ge=0.01, le=1)
+    prepay_month: int | None = Field(None, ge=1, le=60, description='Месяц досрочного погашения')
+    prepay_amount: int = Field(0, ge=0, le=20_000_000)
+    prepay_mode: Literal['term','payment'] = Field('term', description='term — сократить срок, payment — уменьшить платёж')
+
+def schedule_summary(rows):
+    interest = sum(x['interest'] for x in rows)
+    return {'months':len(rows), 'total_paid':sum(x['payment'] + x['prepayment'] for x in rows), 'overpayment':interest}
 
 @app.post('/api/schedule')
 def schedule(payload: ScheduleInput, authorization: str | None = Header(None)):
     validate_any(authorization)
-    rows = amortization(payload.amount, payload.months, payload.annual_rate)
-    total = sum(x['payment'] for x in rows)
-    return {'annual_rate':payload.annual_rate, 'monthly_payment':payment(payload.amount, payload.months, payload.annual_rate), 'total_paid':total, 'overpayment':total-payload.amount, 'rows':rows}
+    monthly = payment(payload.amount, payload.months, payload.annual_rate)
+    result = {'annual_rate':payload.annual_rate, 'monthly_payment':monthly}
+    if payload.prepay_month and payload.prepay_amount:
+        if payload.prepay_month >= payload.months:
+            raise HTTPException(422, 'Досрочное погашение возможно до последнего месяца')
+        rows = amortization(payload.amount, payload.months, payload.annual_rate, (payload.prepay_month, payload.prepay_amount, payload.prepay_mode))
+        baseline = schedule_summary(amortization(payload.amount, payload.months, payload.annual_rate))
+        after = rows[payload.prepay_month]['payment'] if len(rows) > payload.prepay_month else 0
+        result |= {'baseline':baseline, 'savings':baseline['overpayment'] - schedule_summary(rows)['overpayment'], 'monthly_after':after}
+    else:
+        rows = amortization(payload.amount, payload.months, payload.annual_rate)
+    return result | schedule_summary(rows) | {'rows':rows}
 
 class SimulationInput(BaseModel):
     amount: int = Field(ge=100_000, le=20_000_000)
@@ -434,7 +490,9 @@ def analytics(role: str = Depends(require('bank'))):
 
 @app.post('/api/applications', status_code=201)
 def create_application(payload:ApplicationInput, role: str = Depends(require('client'))):
-    id = uuid4().hex[:10].upper()
+    return insert_application(payload, uuid4().hex[:10].upper())
+
+def insert_application(payload:ApplicationInput, id:str):
     time = now()
     with conn() as c:
         c.execute('''INSERT INTO applications (id,created_at,updated_at,company,purpose,amount,months,available_cashflow,revenue,existing_payments,overdue,status)
@@ -466,8 +524,10 @@ def request_info(id:str, payload:RequestInfo, role: str = Depends(require('bank'
         row=get_row(c,id)
         if row['status'] not in ('submitted','clarified'):
             raise HTTPException(409, 'Уточнение на этом этапе недоступно')
-        c.execute('UPDATE applications SET status=?,updated_at=? WHERE id=?', ('needs_info',now(),id))
-        event(c,id,'bank','requested_info',payload.reason)
+        fields=list(dict.fromkeys(payload.fields))
+        c.execute('UPDATE applications SET status=?,info_request=?,updated_at=? WHERE id=?',
+                  ('needs_info',json.dumps({'fields':fields,'reason':payload.reason},ensure_ascii=False),now(),id))
+        event(c,id,'bank','requested_info',f"{payload.reason} (уточнить: {', '.join(CLARIFY_FIELDS[f] for f in fields)})")
         return enriched(c,id)
 
 @app.post('/api/applications/{id}/clarify')
@@ -475,9 +535,21 @@ def clarify(id:str, payload:Clarification, role: str = Depends(require('client')
     with conn() as c:
         row=get_row(c,id)
         if row['status']!='needs_info': raise HTTPException(409,'Уточнение не запрошено')
-        c.execute('UPDATE applications SET available_cashflow=?,status=?,updated_at=? WHERE id=?',
-                  (payload.available_cashflow,'clarified',now(),id))
-        event(c,id,'client','clarified',payload.note)
+        # requests made before field selection existed asked for the cash flow only
+        requested=json.loads(row['info_request'])['fields'] if row.get('info_request') else ['available_cashflow']
+        values=payload.model_dump(exclude_none=True, exclude={'note'})
+        if missing:=[CLARIFY_FIELDS[f] for f in requested if f not in values]:
+            raise HTTPException(422, 'Заполните запрошенные поля: '+', '.join(missing))
+        if extra:=[CLARIFY_FIELDS[f] for f in values if f not in requested]:
+            raise HTTPException(422, 'Банк не запрашивал эти поля: '+', '.join(extra))
+        shown=lambda f,v: ('есть' if v else 'нет') if f=='overdue' else rub(v)
+        changed={f:v for f,v in values.items() if v!=(bool(row[f]) if f=='overdue' else row[f])}
+        changes='; '.join(f'{CLARIFY_FIELDS[f]}: {shown(f,row[f])} → {shown(f,v)}' for f,v in changed.items()) or 'данные подтверждены без изменений'
+        values={f:int(v) if f=='overdue' else v for f,v in values.items()}
+        assignments=''.join(f'{f}=?,' for f in values)  # column names come from the ClarifyField whitelist
+        c.execute(f'UPDATE applications SET {assignments}status=?,info_request=NULL,updated_at=? WHERE id=?',
+                  (*values.values(),'clarified',now(),id))
+        event(c,id,'client','clarified',f'{payload.note}. Изменения: {changes}')
         return enriched(c,id)
 
 class AcceptInput(BaseModel):
@@ -553,6 +625,94 @@ def manual_decision(id:str, payload:ManualDecision, role: str = Depends(require(
         auto={'approved':'одобрение','counteroffer':'другие условия','rejected':'отказ'}.get(row['decision'], row['decision'])
         event(c,id,'bank','manual_decision',f'Сотрудник банка вручную {verdict} заявку (автоскоринг: {auto}): {payload.reason}')
         return enriched(c,id)
+
+# Synthetic history for demos: (company, purpose, terms, hours since submission, steps).
+# A step is (hours after the previous one, action, *arguments); every step runs the real endpoint.
+DEMO_PREFIX = 'DEMO'  # real ids are hex, so they never start with it
+SMALL = dict(revenue=900_000, available_cashflow=210_000, existing_payments=15_000)
+TIGHT = dict(revenue=1_600_000, available_cashflow=240_000, existing_payments=30_000)
+DEMO_SCENARIOS = [
+    ('ООО «Цветочная лавка»', 'Закупка сезонного товара', dict(amount=500_000, months=12, **SMALL), 0.5, []),
+    ('ООО «Пекарня на Садовой»', 'Второй цех', dict(amount=1_200_000, months=24, **SMALL), 3, []),
+    ('ИП Смирнова А. В.', 'Ремонт салона', dict(amount=600_000, months=18, revenue=450_000, available_cashflow=120_000, existing_payments=0), 20, []),
+    ('ООО «ТехноСервис»', 'Оборудование для мастерской', dict(amount=2_500_000, months=36, revenue=1_800_000, available_cashflow=300_000, existing_payments=40_000), 31, []),
+    ('ООО «Зелёный квартал»', 'Благоустройство территории', dict(amount=4_000_000, months=48, revenue=2_500_000, available_cashflow=380_000, existing_payments=60_000), 54, []),
+    ('ООО «Логистик Плюс»', 'Два грузовых фургона', dict(amount=3_000_000, months=24, revenue=2_200_000, available_cashflow=260_000, existing_payments=60_000), 40,
+     [(5, 'request_info', ['available_cashflow', 'existing_payments'], 'Подтвердите денежный поток и текущие платежи по лизингу')]),
+    ('ООО «Кофейня Бриз»', 'Открытие точки у метро', dict(amount=1_500_000, months=24, revenue=800_000, available_cashflow=150_000, existing_payments=20_000), 30,
+     [(3, 'request_info', ['available_cashflow', 'revenue'], 'Уточните выручку и поток с учётом летнего сезона'),
+      (20, 'clarify', dict(available_cashflow=210_000, revenue=1_100_000), 'Приложили выписку за лето')]),
+    ('ООО «Мастерская Уюта»', 'Станки для мебели', dict(amount=800_000, months=24, revenue=700_000, available_cashflow=180_000, existing_payments=0), 26, [(4, 'evaluate')]),
+    ('ООО «Фермерский двор»', 'Холодильная камера', dict(amount=1_000_000, months=36, **SMALL), 160, [(2, 'evaluate')]),
+    ('ООО «Гостевой дом»', 'Строительство гостевых домиков', dict(amount=5_000_000, months=60, revenue=1_000_000, available_cashflow=250_000, existing_payments=0), 110,
+     [(7, 'evaluate'), (16, 'accept', None)]),
+    ('ООО «Швейный цех»', 'Промышленные швейные машины', dict(amount=1_500_000, months=24, revenue=900_000, available_cashflow=120_000, existing_payments=0), 44, [(9, 'evaluate')]),
+    ('ООО «Северный склад»', 'Расширение склада', dict(amount=5_000_000, months=24, **TIGHT), 50, [(12, 'evaluate')]),
+    ('ООО «Типография Литера»', 'Цифровая печатная машина', dict(amount=3_000_000, months=12, **TIGHT), 12, [(6, 'evaluate')]),
+    ('ООО «АвтоДеталь»', 'Пополнение склада запчастей', dict(amount=2_000_000, months=36, revenue=1_500_000, available_cashflow=300_000, existing_payments=20_000), 230,
+     [(3, 'evaluate'), (20, 'accept', None)]),
+    ('ООО «Студия Вектор»', 'Рабочие станции для дизайнеров', dict(amount=3_000_000, months=12, **TIGHT), 200, [(8, 'evaluate'), (30, 'accept', 'term')]),
+    ('ООО «Чистый город»', 'Поломоечные машины', dict(amount=5_000_000, months=24, **TIGHT), 180, [(30, 'evaluate'), (10, 'accept', 'amount')]),
+    ('ИП Ковалёв Д. С.', 'Оборудование для шиномонтажа', dict(amount=900_000, months=24, **SMALL), 100, [(1, 'evaluate'), (2, 'accept', None)]),
+    ('ООО «Ремстрой»', 'Строительная техника', dict(amount=2_000_000, months=24, revenue=1_400_000, available_cashflow=280_000, existing_payments=30_000, overdue=True), 70, [(5, 'evaluate')]),
+    ('ООО «Старт-Ап Лаб»', 'Разработка приложения', dict(amount=1_000_000, months=12, revenue=200_000, available_cashflow=60_000, existing_payments=50_000), 120, [(26, 'evaluate')]),
+    ('ООО «Городской сад»', 'Теплица', dict(amount=1_500_000, months=36, revenue=1_000_000, available_cashflow=230_000, existing_payments=10_000), 220, [(4, 'evaluate')]),
+    ('ООО «Медиа Пульс»', 'Студийное оборудование', dict(amount=3_000_000, months=12, **TIGHT), 250, [(10, 'evaluate')]),
+    ('ООО «Вкусный дом»', 'Кухонное оборудование', dict(amount=1_200_000, months=24, **SMALL), 90, [(6, 'evaluate'), (15, 'withdraw')]),
+    ('ООО «Энергосбыт-Регион»', 'Модернизация подстанции', dict(amount=1_500_000, months=36, revenue=1_200_000, available_cashflow=260_000, existing_payments=10_000, overdue=True), 60,
+     [(3, 'evaluate'), (5, 'decision', 'approved', 'Просрочка была технической и закрыта, подтверждено справкой')]),
+    ('ООО «Быстрый маркет»', 'Ремонт торгового зала', dict(amount=2_000_000, months=24, revenue=1_500_000, available_cashflow=320_000, existing_payments=20_000), 80,
+     [(2, 'evaluate'), (4, 'decision', 'rejected', 'Сомнения в источнике выручки, нужна выездная проверка')]),
+    ('ООО «Северная рыба»', 'Рефрижератор', dict(amount=800_000, months=24, revenue=900_000, available_cashflow=200_000, existing_payments=0, overdue=True), 140,
+     [(2, 'evaluate'), (6, 'decision', 'approved', 'Поручительство собственника покрывает риск просрочки'), (12, 'accept', None)]),
+    ('ООО «Детский клуб Радуга»', 'Второй филиал', dict(amount=2_000_000, months=24, revenue=900_000, available_cashflow=160_000, existing_payments=20_000), 170,
+     [(4, 'request_info', ['available_cashflow', 'revenue'], 'Подтвердите выручку и поток после открытия группы продлённого дня'),
+      (18, 'clarify', dict(available_cashflow=260_000, revenue=1_300_000), 'Приложили отчёт за квартал'),
+      (3, 'evaluate'), (8, 'accept', None)]),
+]
+
+def run_scenario(id, company, purpose, terms, age, steps, base):
+    at = base - timedelta(hours=age)
+    _clock.set(at)
+    insert_application(ApplicationInput(company=company, purpose=purpose, **terms), id)
+    for hours, action, *args in steps:
+        at += timedelta(hours=hours)
+        _clock.set(at)
+        if action == 'evaluate': evaluate(id, role='bank')
+        elif action == 'request_info': request_info(id, RequestInfo(fields=args[0], reason=args[1]), role='bank')
+        elif action == 'clarify': clarify(id, Clarification(note=args[1], **args[0]), role='client')
+        elif action == 'accept': accept(id, AcceptInput(offer=args[0]), role='client')
+        elif action == 'withdraw': withdraw(id, role='client')
+        elif action == 'decision': manual_decision(id, ManualDecision(decision=args[0], reason=args[1]), role='bank')
+
+def clear_demo(c):
+    c.execute('DELETE FROM events WHERE application_id LIKE ?', (DEMO_PREFIX + '%',))
+    return c.execute('DELETE FROM applications WHERE id LIKE ?', (DEMO_PREFIX + '%',)).rowcount
+
+def demo_seed_enabled():
+    if os.getenv('ENABLE_DEMO_SEED', '1') != '1':
+        raise HTTPException(403, 'Демо-данные отключены (ENABLE_DEMO_SEED)')
+
+@app.post('/api/demo/seed')
+def seed_demo(role: str = Depends(require('bank'))):
+    """Recreate the synthetic demo applications; real applications are left alone."""
+    demo_seed_enabled()
+    base = datetime.now(timezone.utc)
+    with conn() as c:
+        clear_demo(c)
+        token = _clock.set(None)
+        try:
+            for n, scenario in enumerate(DEMO_SCENARIOS):
+                run_scenario(f'{DEMO_PREFIX}{n:06d}', *scenario, base)
+        finally:
+            _clock.reset(token)
+    return {'created': len(DEMO_SCENARIOS)}
+
+@app.delete('/api/demo/seed')
+def delete_demo(role: str = Depends(require('bank'))):
+    demo_seed_enabled()
+    with conn() as c:
+        return {'deleted': clear_demo(c)}
 
 @app.post('/api/demo/reset')
 def reset_demo(role: str = Depends(require('bank'))):

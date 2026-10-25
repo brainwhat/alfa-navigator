@@ -146,7 +146,11 @@ def enriched(c, id):
     if row['explanation']: row['explanation'] = json.loads(row['explanation'])
     return row
 
-def score_application(row):
+APPROVE_SCORE = 65
+# Offers and advice keep all payments within 60% of free cash flow, stricter than the approval threshold.
+OFFER_LOAD = 0.6
+
+def assess(row):
     """Illustrative deterministic policy; NOT a real banking credit decision."""
     monthly = payment(row['amount'], row['months'])
     load = (monthly + row['existing_payments']) / row['available_cashflow']
@@ -170,19 +174,63 @@ def score_application(row):
         reasons.append('Запрос существенно превышает месячную выручку')
     else:
         reasons.append('Сумма сопоставима с заявленной выручкой')
-    score = max(0, score)
-    alternative = None
-    if not row['overdue'] and score < 65:
-        # find largest 100k-increment offer satisfying 60% cashflow load; avoid arbitrary approvals
-        affordable_payment = max(0, 0.6 * row['available_cashflow'] - row['existing_payments'])
-        r = RATE/12
-        limit = int(affordable_payment * (1-(1+r)**(-row['months']))/r//100_000)*100_000
-        if 100_000 <= limit < row['amount']:
-            alternative = limit
-    if score >= 65: decision = 'approved'
-    elif alternative: decision = 'counteroffer'
+    return max(0, score), monthly, load, reasons
+
+def affordable(row):
+    score, _, load, _ = assess(row)
+    return score >= APPROVE_SCORE and load <= OFFER_LOAD
+
+def rub(n):
+    return f'{n:,}'.replace(',', ' ') + ' ₽'
+
+def offer(kind, amount, months):
+    return {'id':kind, 'amount':amount, 'months':months, 'monthly_payment':payment(amount, months)}
+
+def find_offers(row):
+    """Alternative terms the bank can offer instead of the requested ones."""
+    offers = []
+    # largest 100k-increment amount for the same term; avoid arbitrary approvals
+    affordable_payment = max(0, OFFER_LOAD * row['available_cashflow'] - row['existing_payments'])
+    r = RATE/12
+    limit = int(affordable_payment * (1-(1+r)**(-row['months']))/r//100_000)*100_000
+    if 100_000 <= limit < row['amount'] and affordable({**row, 'amount':limit}):
+        offers.append(offer('amount', limit, row['months']))
+    # shortest longer term for the requested amount
+    months = next((m for m in range(row['months']+1, 61) if affordable({**row, 'months':m})), None)
+    if months:
+        offers.append(offer('term', row['amount'], months))
+    return offers
+
+def how_to_improve(row, offers):
+    """What the client could change to get the requested loan approved."""
+    if row['overdue']:
+        return ['Погасить просрочки: с ними одобрение по демо-правилам невозможно при любых условиях']
+    tips = []
+    for o in offers:
+        if o['id'] == 'amount':
+            tips.append(f"Уменьшить сумму до {rub(o['amount'])} на тот же срок")
+        else:
+            tips.append(f"Увеличить срок до {o['months']} мес. на ту же сумму")
+    monthly = payment(row['amount'], row['months'])
+    max_existing = int(OFFER_LOAD * row['available_cashflow'] - monthly)
+    if 0 <= max_existing < row['existing_payments'] and affordable({**row, 'existing_payments':max_existing}):
+        tips.append(f"Снизить платежи по действующим долгам до {rub(max_existing)}/мес.")
+    need_cashflow = math.ceil((monthly + row['existing_payments']) / OFFER_LOAD)
+    if need_cashflow > row['available_cashflow'] and affordable({**row, 'available_cashflow':need_cashflow}):
+        tips.append(f"Подтвердить свободный денежный поток от {rub(need_cashflow)}/мес.")
+    return tips
+
+def score_application(row):
+    score, monthly, load, reasons = assess(row)
+    offers = [] if score >= APPROVE_SCORE or row['overdue'] else find_offers(row)
+    if score >= APPROVE_SCORE: decision = 'approved'
+    elif offers: decision = 'counteroffer'
     else: decision = 'rejected'
-    return score, decision, alternative, {'policy_version':'demo-rules-v1','annual_rate':RATE, 'monthly_payment':monthly,'payment_to_cashflow':round(load,3),'factors':reasons,'disclaimer':'Демонстрационная модель на синтетических данных, не банковское решение.'}
+    alternative = next((o['amount'] for o in offers if o['id'] == 'amount'), None)
+    explanation = {'policy_version':'demo-rules-v1','annual_rate':RATE, 'monthly_payment':monthly,'payment_to_cashflow':round(load,3),'factors':reasons,
+                   'offers':offers, 'how_to_improve':[] if decision == 'approved' else how_to_improve(row, offers),
+                   'disclaimer':'Демонстрационная модель на синтетических данных, не банковское решение.'}
+    return score, decision, alternative, explanation
 
 
 def validate_any(authorization: str | None):
@@ -285,15 +333,60 @@ def clarify(id:str, payload:Clarification, role: str = Depends(require('client')
         event(c,id,'client','clarified',payload.note)
         return enriched(c,id)
 
+class AcceptInput(BaseModel):
+    offer: Literal['amount','term'] | None = Field(None, description='Вариант условий для контрпредложения; по умолчанию первый')
+
 @app.post('/api/applications/{id}/accept')
-def accept(id:str, role: str = Depends(require('client'))):
+def accept(id:str, payload: AcceptInput | None = None, role: str = Depends(require('client'))):
     with conn() as c:
         row=get_row(c,id)
         if row['status'] not in ('approved','counteroffer'):
             raise HTTPException(409, 'Принять можно только одобренные условия')
-        amount = row['alternative_amount'] or row['amount']
-        c.execute('UPDATE applications SET status=?,updated_at=? WHERE id=?',('accepted',now(),id))
-        event(c,id,'client','accepted',f'Клиент принял условия на {amount} ₽; подписание и выдача смоделированы')
+        explanation=json.loads(row['explanation'] or '{}')
+        if row['status']=='approved':
+            terms=offer('requested', row['amount'], row['months'])
+        else:
+            # applications scored before offers existed only have alternative_amount
+            offers=explanation.get('offers') or [offer('amount', row['alternative_amount'], row['months'])]
+            choice=payload.offer if payload else None
+            terms=next((o for o in offers if choice in (None, o['id'])), None)
+            if terms is None: raise HTTPException(422, 'Такого варианта условий нет')
+        explanation['accepted_terms']=terms
+        c.execute('UPDATE applications SET status=?,explanation=?,updated_at=? WHERE id=?',
+                  ('accepted',json.dumps(explanation,ensure_ascii=False),now(),id))
+        event(c,id,'client','accepted',f"Клиент принял условия: {rub(terms['amount'])} на {terms['months']} мес.; подписание и выдача смоделированы")
+        return enriched(c,id)
+
+@app.post('/api/applications/{id}/withdraw')
+def withdraw(id:str, role: str = Depends(require('client'))):
+    with conn() as c:
+        row=get_row(c,id)
+        if row['status'] not in ('submitted','needs_info','clarified','approved','counteroffer'):
+            raise HTTPException(409, 'Эту заявку уже нельзя отозвать')
+        c.execute('UPDATE applications SET status=?,updated_at=? WHERE id=?',('withdrawn',now(),id))
+        event(c,id,'client','withdrawn','Клиент отозвал заявку')
+        return enriched(c,id)
+
+class ManualDecision(BaseModel):
+    decision: Literal['approved','rejected']
+    reason: str = Field(min_length=10, max_length=300)
+
+@app.post('/api/applications/{id}/decision')
+def manual_decision(id:str, payload:ManualDecision, role: str = Depends(require('bank'))):
+    """Analyst overrides the automatic result; the auto decision stays in the decision column."""
+    with conn() as c:
+        row=get_row(c,id)
+        if row['status'] not in ('approved','counteroffer','rejected'):
+            raise HTTPException(409, 'Ручное решение возможно только после скоринга и до принятия условий')
+        if row['status']==payload.decision:
+            raise HTTPException(409, 'Заявка уже в этом статусе')
+        explanation=json.loads(row['explanation'])
+        explanation['manual_override']={'decision':payload.decision,'reason':payload.reason,'auto_decision':row['decision'],'at':now()}
+        c.execute('UPDATE applications SET status=?,explanation=?,updated_at=? WHERE id=?',
+                  (payload.decision,json.dumps(explanation,ensure_ascii=False),now(),id))
+        verdict='одобрил' if payload.decision=='approved' else 'отклонил'
+        auto={'approved':'одобрение','counteroffer':'другие условия','rejected':'отказ'}.get(row['decision'], row['decision'])
+        event(c,id,'bank','manual_decision',f'Сотрудник банка вручную {verdict} заявку (автоскоринг: {auto}): {payload.reason}')
         return enriched(c,id)
 
 @app.post('/api/demo/reset')

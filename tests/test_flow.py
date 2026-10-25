@@ -52,3 +52,46 @@ def test_simulator_and_company_stub():
 def test_validation_and_reset_closed():
     assert client.post('/api/applications',json=payload(amount=-1),headers=CLIENT).status_code==422
     assert client.post('/api/demo/reset',headers=BANK).status_code==403
+def evaluate(id):
+    return client.post('/api/applications/'+id+'/evaluate',headers=BANK).json()
+def test_offers_and_choice():
+    a=create(amount=3_000_000,months=12,available_cashflow=240_000,existing_payments=30_000,revenue=1_600_000)
+    d=evaluate(a['id'])
+    assert d['status']=='counteroffer'
+    offers={o['id']:o for o in d['explanation']['offers']}
+    assert offers['amount']['amount']<3_000_000 and offers['amount']['months']==12
+    assert offers['term']['amount']==3_000_000 and 12<offers['term']['months']<=60
+    assert any('срок' in t for t in d['explanation']['how_to_improve'])
+    assert client.post('/api/applications/'+a['id']+'/accept',json={'offer':'bogus'},headers=CLIENT).status_code==422
+    r=client.post('/api/applications/'+a['id']+'/accept',json={'offer':'term'},headers=CLIENT).json()
+    assert r['status']=='accepted'
+    assert r['explanation']['accepted_terms']['months']==offers['term']['months']
+def test_offer_advice_is_approvable():
+    a=create(amount=3_000_000,months=12,available_cashflow=240_000,existing_payments=30_000,revenue=1_600_000)
+    for o in evaluate(a['id'])['explanation']['offers']:
+        b=create(amount=o['amount'],months=o['months'],available_cashflow=240_000,existing_payments=30_000,revenue=1_600_000)
+        assert evaluate(b['id'])['status']=='approved'
+def test_overdue_advice():
+    d=evaluate(create(overdue=True)['id'])
+    assert d['status']=='rejected' and d['explanation']['offers']==[]
+    assert 'просрочки' in d['explanation']['how_to_improve'][0]
+def test_withdraw():
+    a=create()
+    assert client.post('/api/applications/'+a['id']+'/withdraw',headers=BANK).status_code==403
+    assert client.post('/api/applications/'+a['id']+'/withdraw',headers=CLIENT).json()['status']=='withdrawn'
+    assert client.post('/api/applications/'+a['id']+'/withdraw',headers=CLIENT).status_code==409
+    assert client.post('/api/applications/'+a['id']+'/evaluate',headers=BANK).status_code==409
+def test_manual_decision():
+    a=create(overdue=True)
+    reason={'decision':'approved','reason':'Просрочка техническая, подтверждена справкой'}
+    assert client.post('/api/applications/'+a['id']+'/decision',json=reason,headers=BANK).status_code==409
+    assert evaluate(a['id'])['status']=='rejected'
+    assert client.post('/api/applications/'+a['id']+'/decision',json=reason,headers=CLIENT).status_code==403
+    assert client.post('/api/applications/'+a['id']+'/decision',json={'decision':'approved','reason':'коротко'},headers=BANK).status_code==422
+    d=client.post('/api/applications/'+a['id']+'/decision',json=reason,headers=BANK).json()
+    assert d['status']=='approved' and d['decision']=='rejected'
+    assert d['explanation']['manual_override']['auto_decision']=='rejected'
+    assert d['events'][-1]['action']=='manual_decision'
+    assert client.post('/api/applications/'+a['id']+'/decision',json=reason,headers=BANK).status_code==409
+    r=client.post('/api/applications/'+a['id']+'/accept',headers=CLIENT).json()
+    assert r['status']=='accepted' and r['explanation']['accepted_terms']['amount']==1_000_000

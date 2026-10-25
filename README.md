@@ -16,6 +16,8 @@ docker compose up --build
 
 ## Деплой на Vercel через GitHub Actions
 
+Демо: https://alfa-navigator-gamma.vercel.app
+
 Приложение работает на Vercel как одна Python-функция: [api/index.py](api/index.py) импортирует FastAPI-приложение, а [vercel.json](vercel.json) направляет на неё все пути. Деплоит только GitHub runner, автодеплой из Git-интеграции Vercel выключен (`git.deploymentEnabled: false`).
 
 Пайплайн [.github/workflows/ci.yml](.github/workflows/ci.yml):
@@ -29,7 +31,7 @@ docker compose up --build
 2. Создайте токен: Vercel → Account Settings → Tokens.
 3. Добавьте в GitHub (Settings → Secrets and variables → Actions) секреты `VERCEL_TOKEN`, `VERCEL_ORG_ID` (поле `orgId`) и `VERCEL_PROJECT_ID` (поле `projectId`).
 4. По желанию задайте в Vercel → Project → Settings → Environment Variables свои `DEMO_LOGIN_PASSWORD`, `DEMO_CLIENT_KEY`, `DEMO_BANK_KEY`. Если их нет, используются демо-значения по умолчанию.
-5. По желанию: Vercel по умолчанию закрывает deployment-URL авторизацией (Deployment Protection), и тогда smoke-проверка после деплоя пропускается с предупреждением. Чтобы она работала, включите Protection Bypass for Automation и положите его значение в секрет `VERCEL_AUTOMATION_BYPASS_SECRET`.
+5. По желанию: Vercel закрывает уникальные URL деплоев авторизацией (Deployment Protection). Production проверяется по публичному алиасу, а smoke-проверка preview пропускается с предупреждением. Чтобы preview тоже проверялись, включите Protection Bypass for Automation и положите его значение в секрет `VERCEL_AUTOMATION_BYPASS_SECRET`.
 
 **Ограничение:** SQLite на Vercel лежит в `/tmp` экземпляра функции. Данные пропадают при холодном старте, и разные экземпляры не видят заявки друг друга. Для демо при малой нагрузке этого обычно хватает. Для надёжного хранения базу нужно вынести в Postgres (например, Neon из Vercel Marketplace).
 

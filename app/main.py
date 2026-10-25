@@ -4,7 +4,7 @@ import math
 import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
@@ -111,15 +111,30 @@ def payment(amount:int, months:int) -> int:
     r = RATE / 12
     return round(amount * r / (1 - (1 + r) ** (-months)))
 
-class ApplicationInput(BaseModel):
-    company: str = Field(min_length=2, max_length=120)
-    purpose: str = Field(min_length=3, max_length=200)
+def amortization(amount:int, months:int):
+    """Annuity schedule; the last payment absorbs rounding so the balance closes at zero."""
+    r = RATE / 12
+    monthly = payment(amount, months)
+    balance = amount
+    rows = []
+    for m in range(1, months + 1):
+        interest = round(balance * r)
+        principal = balance if m == months else monthly - interest
+        balance -= principal
+        rows.append({'month':m, 'payment':principal+interest, 'principal':principal, 'interest':interest, 'balance':balance})
+    return rows
+
+class LoanTerms(BaseModel):
     amount: int = Field(ge=100_000, le=20_000_000)
     months: int = Field(ge=6, le=60)
     revenue: int = Field(gt=0, le=1_000_000_000)
     available_cashflow: int = Field(gt=0, le=1_000_000_000)
     existing_payments: int = Field(ge=0, le=1_000_000_000)
     overdue: bool = False
+
+class ApplicationInput(LoanTerms):
+    company: str = Field(min_length=2, max_length=120)
+    purpose: str = Field(min_length=3, max_length=200)
 
 class RequestInfo(BaseModel):
     reason: str = Field(min_length=5, max_length=300)
@@ -184,7 +199,8 @@ def rub(n):
     return f'{n:,}'.replace(',', ' ') + ' ₽'
 
 def offer(kind, amount, months):
-    return {'id':kind, 'amount':amount, 'months':months, 'monthly_payment':payment(amount, months)}
+    total = sum(x['payment'] for x in amortization(amount, months))
+    return {'id':kind, 'amount':amount, 'months':months, 'monthly_payment':payment(amount, months), 'total_paid':total, 'overpayment':total-amount}
 
 def find_offers(row):
     """Alternative terms the bank can offer instead of the requested ones."""
@@ -228,7 +244,7 @@ def score_application(row):
     else: decision = 'rejected'
     alternative = next((o['amount'] for o in offers if o['id'] == 'amount'), None)
     explanation = {'policy_version':'demo-rules-v1','annual_rate':RATE, 'monthly_payment':monthly,'payment_to_cashflow':round(load,3),'factors':reasons,
-                   'offers':offers, 'how_to_improve':[] if decision == 'approved' else how_to_improve(row, offers),
+                   'requested':offer('requested', row['amount'], row['months']), 'offers':offers, 'how_to_improve':[] if decision == 'approved' else how_to_improve(row, offers),
                    'disclaimer':'Демонстрационная модель на синтетических данных, не банковское решение.'}
     return score, decision, alternative, explanation
 
@@ -245,6 +261,24 @@ def my_applications(role: str = Depends(require('client'))):
     # In demo there is exactly one synthetic customer; this is NOT multi-tenant isolation.
     with conn() as c:
         return [dict(r) for r in c.execute('SELECT id,company,amount,months,status,created_at FROM applications ORDER BY created_at DESC')]
+
+@app.post('/api/precheck')
+def precheck(payload: LoanTerms, role: str = Depends(require('client'))):
+    """Same rules as the bank's scoring, without saving anything."""
+    score, decision, _, explanation = score_application(payload.model_dump())
+    return {'score':score, 'decision':decision, **explanation,
+            'disclaimer':'Предварительная оценка по демо-правилам, итоговое решение принимает банк.'}
+
+class ScheduleInput(BaseModel):
+    amount: int = Field(ge=100_000, le=20_000_000)
+    months: int = Field(ge=6, le=60)
+
+@app.post('/api/schedule')
+def schedule(payload: ScheduleInput, authorization: str | None = Header(None)):
+    validate_any(authorization)
+    rows = amortization(payload.amount, payload.months)
+    total = sum(x['payment'] for x in rows)
+    return {'annual_rate':RATE, 'monthly_payment':payment(payload.amount, payload.months), 'total_paid':total, 'overpayment':total-payload.amount, 'rows':rows}
 
 class SimulationInput(BaseModel):
     amount: int = Field(ge=100_000, le=20_000_000)
@@ -281,10 +315,25 @@ def index(): return FileResponse(ROOT / 'static' / 'index.html')
 @app.get('/api/health')
 def health(): return {'status':'ok', 'database':'postgres' if DATABASE_URL else 'sqlite'}
 
+BANK_SLA_HOURS = float(os.getenv('BANK_SLA_HOURS', '24'))
+# Whose move it is; every status change also sets updated_at, so it marks when the wait began.
+WAITING_ON = {'submitted':'bank', 'clarified':'bank', 'needs_info':'client', 'approved':'client', 'counteroffer':'client'}
+
+def queue_item(row, at):
+    since = datetime.fromisoformat(row['updated_at'])
+    row['waiting_on'] = WAITING_ON.get(row['status'])
+    row['in_status_minutes'] = int((at - since).total_seconds() // 60)
+    due = since + timedelta(hours=BANK_SLA_HOURS) if row['waiting_on'] == 'bank' else None
+    row['sla_due_at'] = due and due.isoformat()
+    row['sla_breached'] = bool(due and at > due)
+    return row
+
 @app.get('/api/applications')
 def list_applications(role: str = Depends(require('bank'))):
+    at = datetime.now(timezone.utc)
     with conn() as c:
-        return [dict(row) for row in c.execute('SELECT id, company, amount, months, status, created_at FROM applications ORDER BY created_at DESC')]
+        rows = c.execute('SELECT id, company, amount, months, status, created_at, updated_at FROM applications ORDER BY created_at DESC')
+        return [queue_item(dict(row), at) for row in rows]
 
 @app.post('/api/applications', status_code=201)
 def create_application(payload:ApplicationInput, role: str = Depends(require('client'))):

@@ -95,3 +95,40 @@ def test_manual_decision():
     assert client.post('/api/applications/'+a['id']+'/decision',json=reason,headers=BANK).status_code==409
     r=client.post('/api/applications/'+a['id']+'/accept',headers=CLIENT).json()
     assert r['status']=='accepted' and r['explanation']['accepted_terms']['amount']==1_000_000
+def terms(**overrides):
+    data=payload(**overrides)
+    del data['company'],data['purpose']
+    return data
+def test_precheck_matches_scoring_and_saves_nothing():
+    before=len(client.get('/api/applications',headers=BANK).json())
+    t=terms(amount=3_000_000,months=12,available_cashflow=240_000,existing_payments=30_000,revenue=1_600_000)
+    assert client.post('/api/precheck',json=t,headers=BANK).status_code==403
+    p=client.post('/api/precheck',json=t,headers=CLIENT).json()
+    assert len(client.get('/api/applications',headers=BANK).json())==before
+    d=evaluate(create(**t)['id'])
+    assert (p['decision'],p['score'],p['offers'])==(d['status'],d['score'],d['explanation']['offers'])
+    assert p['requested']['overpayment']==p['requested']['total_paid']-3_000_000>0
+    assert client.post('/api/precheck',json=terms(amount=-1),headers=CLIENT).status_code==422
+def test_schedule():
+    s=client.post('/api/schedule',json={'amount':3_000_000,'months':37},headers=CLIENT).json()
+    rows=s['rows']
+    assert len(rows)==37 and rows[-1]['balance']==0
+    assert sum(r['principal'] for r in rows)==3_000_000
+    assert s['overpayment']==sum(r['interest'] for r in rows)==s['total_paid']-3_000_000
+    assert all(abs(r['payment']-s['monthly_payment'])<=1 for r in rows)
+    assert client.post('/api/schedule',json={'amount':3_000_000,'months':37}).status_code==401
+def test_offers_carry_overpayment():
+    d=evaluate(create(amount=3_000_000,months=12,available_cashflow=240_000,existing_payments=30_000,revenue=1_600_000)['id'])
+    offers={o['id']:o for o in d['explanation']['offers']}
+    assert offers['term']['overpayment']>d['explanation']['requested']['overpayment']>offers['amount']['overpayment']
+def test_queue_sla(monkeypatch):
+    import app.main as m
+    a=create()
+    item=next(x for x in client.get('/api/applications',headers=BANK).json() if x['id']==a['id'])
+    assert item['waiting_on']=='bank' and not item['sla_breached'] and item['sla_due_at']
+    monkeypatch.setattr(m,'BANK_SLA_HOURS',-1)
+    item=next(x for x in client.get('/api/applications',headers=BANK).json() if x['id']==a['id'])
+    assert item['sla_breached']
+    client.post('/api/applications/'+a['id']+'/request-info',json={'reason':'Уточните финансы'},headers=BANK)
+    item=next(x for x in client.get('/api/applications',headers=BANK).json() if x['id']==a['id'])
+    assert item['waiting_on']=='client' and not item['sla_breached'] and item['sla_due_at'] is None

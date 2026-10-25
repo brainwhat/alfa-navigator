@@ -9,4 +9,4 @@ tests
 docs
 Dockerfile
 docker-compose.yml
-.env
+.env*

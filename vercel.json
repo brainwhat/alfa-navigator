@@ -4,6 +4,7 @@
   "functions": {
     "api/index.py": {
       "includeFiles": "app/**",
+      "excludeFiles": "{.github/**,docs/**,tests/**,scripts/**,Dockerfile,docker-compose.yml,.venv/**,.data/**,.claude/**,.env*,.pytest_cache/**,**/__pycache__/**,**/*.db}",
       "maxDuration": 10
     }
   },

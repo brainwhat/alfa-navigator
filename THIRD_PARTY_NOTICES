@@ -5,5 +5,7 @@ Uvicorn 0.34.2 — BSD-3-Clause.
 httpx 0.28.1 — BSD-3-Clause.
 pytest 8.3.5 — MIT.
 SQLite — public domain.
-No external models, datasets, fonts, paid APIs or real corporate integrations used.
+Onest (app/static/fonts) — SIL Open Font License 1.1.
+Phosphor Icons 2.1.1 (app/static/icons) — MIT.
+No external models, datasets, paid APIs or real corporate integrations used.
 Credit decision logic, registry checks, credit-history inputs, signature and funds disbursement are mock/synthetic, not production integrations.

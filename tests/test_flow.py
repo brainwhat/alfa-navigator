@@ -132,3 +132,56 @@ def test_queue_sla(monkeypatch):
     client.post('/api/applications/'+a['id']+'/request-info',json={'reason':'Уточните финансы'},headers=BANK)
     item=next(x for x in client.get('/api/applications',headers=BANK).json() if x['id']==a['id'])
     assert item['waiting_on']=='client' and not item['sla_breached'] and item['sla_due_at'] is None
+def test_risk_based_rate():
+    import app.main as m
+    assert [m.rate_for(s) for s in (85,70,65,50)]==[0.18,0.20,0.22,0.26]
+    best=evaluate(create()['id'])
+    assert best['score']==85 and best['explanation']['annual_rate']==0.18
+    assert best['explanation']['requested']['monthly_payment']==m.payment(1_000_000,36,0.18)
+    weaker=evaluate(create(amount=5_000_000,months=60,revenue=1_000_000,available_cashflow=250_000)['id'])
+    assert weaker['score']==70 and weaker['explanation']['annual_rate']==0.20
+    r=client.post('/api/applications/'+best['id']+'/accept',headers=CLIENT).json()
+    assert r['explanation']['accepted_terms']['annual_rate']==0.18
+    s=client.post('/api/schedule',json={'amount':1_000_000,'months':36,'annual_rate':0.18},headers=CLIENT).json()
+    assert s['monthly_payment']==m.payment(1_000_000,36,0.18) and s['annual_rate']==0.18
+def test_manual_approval_priced_at_top_rate():
+    a=create(overdue=True)
+    evaluate(a['id'])
+    client.post('/api/applications/'+a['id']+'/decision',json={'decision':'approved','reason':'Просрочка техническая, подтверждена'},headers=BANK)
+    r=client.post('/api/applications/'+a['id']+'/accept',headers=CLIENT).json()
+    assert r['explanation']['accepted_terms']['annual_rate']==0.26
+def test_offer_expiry_and_extension(monkeypatch):
+    import app.main as m
+    d=evaluate(create()['id'])
+    assert d['status']=='approved' and d['offer_expires_at']>d['updated_at']
+    monkeypatch.setattr(m,'OFFER_VALID_DAYS',-1)
+    a=create()
+    d=evaluate(a['id'])
+    assert d['status']=='expired' and d['events'][-1]['actor']=='system'
+    assert sum(e['action']=='expired' for e in client.get('/api/applications/'+a['id'],headers=BANK).json()['events'])==1
+    assert client.post('/api/applications/'+a['id']+'/accept',headers=CLIENT).status_code==409
+    assert client.post('/api/applications/'+a['id']+'/extend',headers=CLIENT).status_code==403
+    monkeypatch.setattr(m,'OFFER_VALID_DAYS',7)
+    r=client.post('/api/applications/'+a['id']+'/extend',headers=BANK).json()
+    assert r['status']=='approved' and r['events'][-1]['action']=='extended'
+    assert client.post('/api/applications/'+a['id']+'/accept',headers=CLIENT).json()['status']=='accepted'
+    assert client.post('/api/applications/'+a['id']+'/extend',headers=BANK).status_code==409
+def test_analytics():
+    assert client.get('/api/analytics',headers=CLIENT).status_code==403
+    before=client.get('/api/analytics',headers=BANK).json()
+    a=create(); evaluate(a['id']); client.post('/api/applications/'+a['id']+'/accept',headers=CLIENT)
+    b=create(overdue=True); evaluate(b['id'])
+    create()
+    r=client.get('/api/analytics',headers=BANK).json()
+    funnel={x['stage']:x['count'] for x in r['funnel']}
+    old={x['stage']:x['count'] for x in before['funnel']}
+    assert funnel['Подано']-old['Подано']==3 and funnel['Прошли скоринг']-old['Прошли скоринг']==2
+    assert funnel['Приняли условия']-old['Приняли условия']==1
+    assert any(f['factor']=='В синтетической истории указаны просрочки' for f in r['top_factors'])
+    assert r['sla']['responses']-before['sla']['responses']==2 and r['sla']['waiting_now']>=1
+    assert r['sla']['within_sla_pct']==100 and r['sla']['breached_now']==0
+def test_unapproved_terms_shown_at_reference_rate():
+    d=evaluate(create(overdue=True)['id'])
+    assert d['explanation']['requested']['annual_rate']==0.22
+    r=client.post('/api/applications/'+d['id']+'/decision',json={'decision':'approved','reason':'Просрочка техническая, подтверждена'},headers=BANK).json()
+    assert r['explanation']['requested']['annual_rate']==0.26

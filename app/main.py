@@ -3,6 +3,8 @@ import json
 import math
 import os
 import sqlite3
+import statistics
+from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -104,17 +106,28 @@ with conn() as c:
     c.execute(f'''CREATE TABLE IF NOT EXISTS events (id {event_id},
      application_id TEXT NOT NULL, occurred_at TEXT NOT NULL, actor TEXT NOT NULL,
      action TEXT NOT NULL, description TEXT NOT NULL)''')
+    if DATABASE_URL:
+        c.execute('ALTER TABLE applications ADD COLUMN IF NOT EXISTS offer_expires_at TEXT')
+    elif 'offer_expires_at' not in {col[1] for col in c.execute('PRAGMA table_info(applications)')}:
+        c.execute('ALTER TABLE applications ADD COLUMN offer_expires_at TEXT')
 
+# Reference rate: scoring measures the debt load at this rate, then the score sets the actual price.
 RATE = 0.22
+# (minimum score, annual rate). Auto-approvals and offers never price above RATE,
+# so the load the scoring checked stays an upper bound; 26% is reachable only by a manual approval.
+RATE_TIERS = [(85, 0.18), (70, 0.20), (65, 0.22), (0, 0.26)]
 
-def payment(amount:int, months:int) -> int:
-    r = RATE / 12
+def rate_for(score) -> float:
+    return next(rate for minimum, rate in RATE_TIERS if (score or 0) >= minimum)
+
+def payment(amount:int, months:int, rate:float=RATE) -> int:
+    r = rate / 12
     return round(amount * r / (1 - (1 + r) ** (-months)))
 
-def amortization(amount:int, months:int):
+def amortization(amount:int, months:int, rate:float=RATE):
     """Annuity schedule; the last payment absorbs rounding so the balance closes at zero."""
-    r = RATE / 12
-    monthly = payment(amount, months)
+    r = rate / 12
+    monthly = payment(amount, months, rate)
     balance = amount
     rows = []
     for m in range(1, months + 1):
@@ -150,7 +163,22 @@ def event(c, id, actor, action, description):
     c.execute('INSERT INTO events (application_id, occurred_at, actor, action, description) VALUES (?,?,?,?,?)',
               (id, now(), actor, action, description))
 
+OFFER_VALID_DAYS = float(os.getenv('OFFER_VALID_DAYS', '7'))
+OPEN_OFFER = ('approved', 'counteroffer')
+
+def offer_deadline() -> str:
+    return (datetime.now(timezone.utc) + timedelta(days=OFFER_VALID_DAYS)).isoformat()
+
+def expire_offers(c):
+    """Close offers past their deadline; runs lazily before applications are read or changed."""
+    at = now()
+    for row in c.execute("SELECT id FROM applications WHERE status IN ('approved','counteroffer') AND offer_expires_at < ?", (at,)).fetchall():
+        # the status guard keeps concurrent requests from logging the expiry twice
+        if c.execute("UPDATE applications SET status='expired', updated_at=? WHERE id=? AND status IN ('approved','counteroffer')", (at, row['id'])).rowcount:
+            event(c, row['id'], 'system', 'expired', 'Срок действия предложения истёк')
+
 def get_row(c, id):
+    expire_offers(c)
     row = c.execute('SELECT * FROM applications WHERE id=?', (id,)).fetchone()
     if row is None: raise HTTPException(404, 'Заявка не найдена')
     return dict(row)
@@ -198,9 +226,12 @@ def affordable(row):
 def rub(n):
     return f'{n:,}'.replace(',', ' ') + ' ₽'
 
-def offer(kind, amount, months):
-    total = sum(x['payment'] for x in amortization(amount, months))
-    return {'id':kind, 'amount':amount, 'months':months, 'monthly_payment':payment(amount, months), 'total_paid':total, 'overpayment':total-amount}
+def offer(kind, amount, months, rate):
+    total = sum(x['payment'] for x in amortization(amount, months, rate))
+    return {'id':kind, 'amount':amount, 'months':months, 'annual_rate':rate, 'monthly_payment':payment(amount, months, rate), 'total_paid':total, 'overpayment':total-amount}
+
+def priced(kind, row):
+    return offer(kind, row['amount'], row['months'], rate_for(assess(row)[0]))
 
 def find_offers(row):
     """Alternative terms the bank can offer instead of the requested ones."""
@@ -210,11 +241,11 @@ def find_offers(row):
     r = RATE/12
     limit = int(affordable_payment * (1-(1+r)**(-row['months']))/r//100_000)*100_000
     if 100_000 <= limit < row['amount'] and affordable({**row, 'amount':limit}):
-        offers.append(offer('amount', limit, row['months']))
+        offers.append(priced('amount', {**row, 'amount':limit}))
     # shortest longer term for the requested amount
     months = next((m for m in range(row['months']+1, 61) if affordable({**row, 'months':m})), None)
     if months:
-        offers.append(offer('term', row['amount'], months))
+        offers.append(priced('term', {**row, 'months':months}))
     return offers
 
 def how_to_improve(row, offers):
@@ -243,8 +274,11 @@ def score_application(row):
     elif offers: decision = 'counteroffer'
     else: decision = 'rejected'
     alternative = next((o['amount'] for o in offers if o['id'] == 'amount'), None)
-    explanation = {'policy_version':'demo-rules-v1','annual_rate':RATE, 'monthly_payment':monthly,'payment_to_cashflow':round(load,3),'factors':reasons,
-                   'requested':offer('requested', row['amount'], row['months']), 'offers':offers, 'how_to_improve':[] if decision == 'approved' else how_to_improve(row, offers),
+    # Requested terms that were not approved are shown at the reference rate the scoring used.
+    rate = rate_for(score) if decision == 'approved' else RATE
+    explanation = {'policy_version':'demo-rules-v1','annual_rate':rate, 'reference_rate':RATE, 'rate_tiers':RATE_TIERS,
+                   'monthly_payment':monthly,'payment_to_cashflow':round(load,3),'factors':reasons,
+                   'requested':offer('requested', row['amount'], row['months'], rate), 'offers':offers, 'how_to_improve':[] if decision == 'approved' else how_to_improve(row, offers),
                    'disclaimer':'Демонстрационная модель на синтетических данных, не банковское решение.'}
     return score, decision, alternative, explanation
 
@@ -260,7 +294,8 @@ def validate_any(authorization: str | None):
 def my_applications(role: str = Depends(require('client'))):
     # In demo there is exactly one synthetic customer; this is NOT multi-tenant isolation.
     with conn() as c:
-        return [dict(r) for r in c.execute('SELECT id,company,amount,months,status,created_at FROM applications ORDER BY created_at DESC')]
+        expire_offers(c)
+        return [dict(r) for r in c.execute('SELECT id,company,amount,months,status,created_at,offer_expires_at FROM applications ORDER BY created_at DESC')]
 
 @app.post('/api/precheck')
 def precheck(payload: LoanTerms, role: str = Depends(require('client'))):
@@ -272,13 +307,14 @@ def precheck(payload: LoanTerms, role: str = Depends(require('client'))):
 class ScheduleInput(BaseModel):
     amount: int = Field(ge=100_000, le=20_000_000)
     months: int = Field(ge=6, le=60)
+    annual_rate: float = Field(RATE, ge=0.01, le=1)
 
 @app.post('/api/schedule')
 def schedule(payload: ScheduleInput, authorization: str | None = Header(None)):
     validate_any(authorization)
-    rows = amortization(payload.amount, payload.months)
+    rows = amortization(payload.amount, payload.months, payload.annual_rate)
     total = sum(x['payment'] for x in rows)
-    return {'annual_rate':RATE, 'monthly_payment':payment(payload.amount, payload.months), 'total_paid':total, 'overpayment':total-payload.amount, 'rows':rows}
+    return {'annual_rate':payload.annual_rate, 'monthly_payment':payment(payload.amount, payload.months, payload.annual_rate), 'total_paid':total, 'overpayment':total-payload.amount, 'rows':rows}
 
 class SimulationInput(BaseModel):
     amount: int = Field(ge=100_000, le=20_000_000)
@@ -332,8 +368,69 @@ def queue_item(row, at):
 def list_applications(role: str = Depends(require('bank'))):
     at = datetime.now(timezone.utc)
     with conn() as c:
-        rows = c.execute('SELECT id, company, amount, months, status, created_at, updated_at FROM applications ORDER BY created_at DESC')
+        expire_offers(c)
+        rows = c.execute('SELECT id, company, amount, months, status, created_at, updated_at, offer_expires_at FROM applications ORDER BY created_at DESC')
         return [queue_item(dict(row), at) for row in rows]
+
+NEGATIVE_FACTORS = {'Высокая доля платежей в свободном денежном потоке', 'Повышенная долговая нагрузка',
+                    'В синтетической истории указаны просрочки', 'Запрос существенно превышает месячную выручку'}
+
+def minutes_between(start:str, end:str) -> float:
+    return (datetime.fromisoformat(end) - datetime.fromisoformat(start)).total_seconds() / 60
+
+def average(values):
+    return round(sum(values) / len(values)) if values else None
+
+@app.get('/api/analytics')
+def analytics(role: str = Depends(require('bank'))):
+    at = now()
+    with conn() as c:
+        expire_offers(c)
+        apps = [dict(r) for r in c.execute('SELECT id, status, amount, score, decision, explanation FROM applications')]
+        events = [dict(r) for r in c.execute('SELECT application_id, occurred_at, action FROM events ORDER BY id')]
+    for a in apps:
+        a['explanation'] = json.loads(a['explanation']) if a['explanation'] else {}
+        a['effective'] = (a['explanation'].get('manual_override') or {}).get('decision') or a['decision']
+    scored = [a for a in apps if a['decision']]
+    offered = [a for a in scored if a['effective'] in OPEN_OFFER]
+    accepted = [a for a in apps if a['status'] == 'accepted']
+    # applications accepted before accepted_terms existed have no recorded terms
+    accepted_terms = [a['explanation']['accepted_terms'] for a in accepted if 'accepted_terms' in a['explanation']]
+    factors = Counter(f for a in scored if a['decision'] != 'approved' for f in a['explanation'].get('factors', []) if f in NEGATIVE_FACTORS)
+
+    # Bank response time: from submission or clarification to the bank's next move.
+    waiting, responses = {}, []
+    for e in events:
+        if e['action'] in ('submitted', 'clarified'):
+            waiting[e['application_id']] = e['occurred_at']
+        elif e['action'] in ('evaluated', 'requested_info') and e['application_id'] in waiting:
+            responses.append(minutes_between(waiting.pop(e['application_id']), e['occurred_at']))
+        elif e['action'] == 'withdrawn':
+            waiting.pop(e['application_id'], None)
+    limit = BANK_SLA_HOURS * 60
+    open_waits = [minutes_between(start, at) for start in waiting.values()]
+
+    return {
+        'total': len(apps),
+        'by_status': dict(Counter(a['status'] for a in apps)),
+        'funnel': [{'stage':'Подано', 'count':len(apps)}, {'stage':'Прошли скоринг', 'count':len(scored)},
+                   {'stage':'Получили предложение', 'count':len(offered)}, {'stage':'Приняли условия', 'count':len(accepted)}],
+        'auto_decisions': dict(Counter(a['decision'] for a in scored)),
+        'manual': {'total': sum(1 for a in scored if a['explanation'].get('manual_override')),
+                   'approved_against_auto': sum(1 for a in scored if a['effective'] == 'approved' and a['decision'] != 'approved')},
+        'offers': {'accepted': sum(1 for a in offered if a['status'] == 'accepted'), 'pending': sum(1 for a in offered if a['status'] in OPEN_OFFER),
+                   'expired': sum(1 for a in offered if a['status'] == 'expired'), 'withdrawn': sum(1 for a in offered if a['status'] == 'withdrawn')},
+        'top_factors': [{'factor':f, 'count':n} for f, n in factors.most_common()],
+        'approved_rates': [{'rate':rate, 'count':n} for rate, n in sorted(Counter(rate_for(a['score']) for a in scored if a['effective'] == 'approved').items())],
+        'avg_requested_amount': average([a['amount'] for a in apps]),
+        'avg_accepted_amount': average([t['amount'] for t in accepted_terms]),
+        'sla': {'hours': BANK_SLA_HOURS, 'responses': len(responses),
+                'avg_minutes': average(responses), 'median_minutes': round(statistics.median(responses)) if responses else None,
+                'within_sla_pct': round(100 * sum(1 for m in responses if m <= limit) / len(responses)) if responses else None,
+                'breached': sum(1 for m in responses if m > limit),
+                'waiting_now': len(open_waits), 'breached_now': sum(1 for m in open_waits if m > limit),
+                'oldest_wait_minutes': round(max(open_waits)) if open_waits else None},
+    }
 
 @app.post('/api/applications', status_code=201)
 def create_application(payload:ApplicationInput, role: str = Depends(require('client'))):
@@ -357,8 +454,9 @@ def evaluate(id:str, role: str = Depends(require('bank'))):
         if row['status'] not in ('submitted','clarified'):
             raise HTTPException(409, 'Оценка возможна только для новой или уточнённой заявки')
         score,decision,alternative,explanation=score_application(row)
-        c.execute('UPDATE applications SET status=?, score=?, decision=?, alternative_amount=?, explanation=?, updated_at=? WHERE id=?',
-                  (decision,score,decision,alternative,json.dumps(explanation,ensure_ascii=False),now(),id))
+        deadline=offer_deadline() if decision in OPEN_OFFER else None
+        c.execute('UPDATE applications SET status=?, score=?, decision=?, alternative_amount=?, explanation=?, offer_expires_at=?, updated_at=? WHERE id=?',
+                  (decision,score,decision,alternative,json.dumps(explanation,ensure_ascii=False),deadline,now(),id))
         event(c,id,'bank','evaluated',f'Скоринг {score}; результат: {decision}; правила demo-rules-v1')
         return enriched(c,id)
 
@@ -393,10 +491,10 @@ def accept(id:str, payload: AcceptInput | None = None, role: str = Depends(requi
             raise HTTPException(409, 'Принять можно только одобренные условия')
         explanation=json.loads(row['explanation'] or '{}')
         if row['status']=='approved':
-            terms=offer('requested', row['amount'], row['months'])
+            terms=offer('requested', row['amount'], row['months'], rate_for(row['score']))
         else:
             # applications scored before offers existed only have alternative_amount
-            offers=explanation.get('offers') or [offer('amount', row['alternative_amount'], row['months'])]
+            offers=explanation.get('offers') or [offer('amount', row['alternative_amount'], row['months'], RATE)]
             choice=payload.offer if payload else None
             terms=next((o for o in offers if choice in (None, o['id'])), None)
             if terms is None: raise HTTPException(422, 'Такого варианта условий нет')
@@ -404,6 +502,21 @@ def accept(id:str, payload: AcceptInput | None = None, role: str = Depends(requi
         c.execute('UPDATE applications SET status=?,explanation=?,updated_at=? WHERE id=?',
                   ('accepted',json.dumps(explanation,ensure_ascii=False),now(),id))
         event(c,id,'client','accepted',f"Клиент принял условия: {rub(terms['amount'])} на {terms['months']} мес.; подписание и выдача смоделированы")
+        return enriched(c,id)
+
+@app.post('/api/applications/{id}/extend')
+def extend_offer(id:str, role: str = Depends(require('bank'))):
+    """Give the client another OFFER_VALID_DAYS, reopening an expired offer."""
+    with conn() as c:
+        row=get_row(c,id)
+        if row['status'] not in ('approved','counteroffer','expired'):
+            raise HTTPException(409, 'Продлить можно только действующее или истёкшее предложение')
+        override=json.loads(row['explanation'] or '{}').get('manual_override') or {}
+        status=row['status'] if row['status']!='expired' else 'approved' if override.get('decision')=='approved' else row['decision']
+        deadline=offer_deadline()
+        c.execute('UPDATE applications SET status=?,offer_expires_at=?,updated_at=? WHERE id=?',(status,deadline,now(),id))
+        until=datetime.fromisoformat(deadline).strftime('%d.%m.%Y')
+        event(c,id,'bank','extended',f'Банк продлил предложение до {until}')
         return enriched(c,id)
 
 @app.post('/api/applications/{id}/withdraw')
@@ -430,9 +543,12 @@ def manual_decision(id:str, payload:ManualDecision, role: str = Depends(require(
         if row['status']==payload.decision:
             raise HTTPException(409, 'Заявка уже в этом статусе')
         explanation=json.loads(row['explanation'])
+        if payload.decision=='approved':
+            explanation['requested']=offer('requested', row['amount'], row['months'], rate_for(row['score']))
         explanation['manual_override']={'decision':payload.decision,'reason':payload.reason,'auto_decision':row['decision'],'at':now()}
-        c.execute('UPDATE applications SET status=?,explanation=?,updated_at=? WHERE id=?',
-                  (payload.decision,json.dumps(explanation,ensure_ascii=False),now(),id))
+        deadline=offer_deadline() if payload.decision=='approved' else None
+        c.execute('UPDATE applications SET status=?,explanation=?,offer_expires_at=?,updated_at=? WHERE id=?',
+                  (payload.decision,json.dumps(explanation,ensure_ascii=False),deadline,now(),id))
         verdict='одобрил' if payload.decision=='approved' else 'отклонил'
         auto={'approved':'одобрение','counteroffer':'другие условия','rejected':'отказ'}.get(row['decision'], row['decision'])
         event(c,id,'bank','manual_decision',f'Сотрудник банка вручную {verdict} заявку (автоскоринг: {auto}): {payload.reason}')

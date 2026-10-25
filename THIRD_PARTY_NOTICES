@@ -1,0 +1,9 @@
+Python 3.12.10 — Python Software Foundation License.
+FastAPI 0.115.12 — MIT.
+Starlette and Pydantic — MIT.
+Uvicorn 0.34.2 — BSD-3-Clause.
+httpx 0.28.1 — BSD-3-Clause.
+pytest 8.3.5 — MIT.
+SQLite — public domain.
+No external models, datasets, fonts, paid APIs or real corporate integrations used.
+Credit decision logic, registry checks, credit-history inputs, signature and funds disbursement are mock/synthetic, not production integrations.

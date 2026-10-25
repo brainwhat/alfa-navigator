@@ -1,0 +1,16 @@
+services:
+  navigator:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - navigator_data:/data
+    environment:
+      DB_PATH: /data/loans.db
+      DEMO_LOGIN_PASSWORD: ${DEMO_LOGIN_PASSWORD:-alfa-demo-2026}
+      DEMO_CLIENT_KEY: ${DEMO_CLIENT_KEY:-demo-client-change-me}
+      DEMO_BANK_KEY: ${DEMO_BANK_KEY:-demo-bank-change-me}
+      ENABLE_DEMO_RESET: "0"
+    restart: unless-stopped
+volumes:
+  navigator_data:

@@ -1,0 +1,12 @@
+.venv
+.data
+.claude
+.github
+.pytest_cache
+__pycache__
+*.db
+tests
+docs
+Dockerfile
+docker-compose.yml
+.env

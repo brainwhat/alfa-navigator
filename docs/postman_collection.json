@@ -1,0 +1,217 @@
+{
+  "info": {
+    "name": "Alfa Navigator Demo API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "application_id",
+      "value": ""
+    },
+    {
+      "key": "client_token",
+      "value": "demo-client-change-me"
+    },
+    {
+      "key": "bank_token",
+      "value": "demo-bank-change-me"
+    }
+  ],
+  "item": [
+    {
+      "name": "Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/api/demo/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"role\": \"client\", \"password\": \"alfa-demo-2026\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "New application",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{client_token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/api/applications",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"company\": \"ООО Кофе и город\", \"purpose\": \"Вторая кофейня\", \"amount\": 5000000, \"months\": 24, \"revenue\": 1600000, \"available_cashflow\": 240000, \"existing_payments\": 30000, \"overdue\": false}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Client applications",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{client_token}}"
+          }
+        ],
+        "url": "{{base_url}}/api/my-applications"
+      }
+    },
+    {
+      "name": "Bank applications",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bank_token}}"
+          }
+        ],
+        "url": "{{base_url}}/api/applications"
+      }
+    },
+    {
+      "name": "Simulate",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{client_token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/api/simulate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"amount\": 3000000, \"months\": 24, \"available_cashflow\": 210000, \"existing_payments\": 10000, \"seasonality\": 30}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Company stub",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{client_token}}"
+          }
+        ],
+        "url": "{{base_url}}/api/mock/company/1234567890"
+      }
+    },
+    {
+      "name": "Evaluate",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bank_token}}"
+          }
+        ],
+        "url": "{{base_url}}/api/applications/{{application_id}}/evaluate"
+      }
+    },
+    {
+      "name": "Request info",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{bank_token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/api/applications/{{application_id}}/request-info",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"reason\": \"Уточните данные о выручке\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Clarify",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{client_token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/api/applications/{{application_id}}/clarify",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"available_cashflow\": 260000, \"note\": \"Обновлённый прогноз\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Accept",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{client_token}}"
+          }
+        ],
+        "url": "{{base_url}}/api/applications/{{application_id}}/accept"
+      }
+    }
+  ]
+}

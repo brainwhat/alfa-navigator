@@ -16,8 +16,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).parent
-DB = Path(os.environ.get('DB_PATH', '/tmp/alfa-navigator.db'))
-DB.parent.mkdir(parents=True, exist_ok=True)
+# Postgres when a connection string is set (Neon on Vercel sets DATABASE_URL), SQLite otherwise.
+DATABASE_URL = os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL')
+if DATABASE_URL:
+    import psycopg
+    from psycopg.rows import dict_row
+else:
+    DB = Path(os.environ.get('DB_PATH', '/tmp/alfa-navigator.db'))
+    DB.parent.mkdir(parents=True, exist_ok=True)
 app = FastAPI(title='Альфа.Навигатор — демо API', version='1.0.0')
 # Demo-only tokens, supplied by environment. Browser clients log in explicitly.
 DEMO_CLIENT_KEY = os.getenv('DEMO_CLIENT_KEY', 'demo-client-change-me')
@@ -56,8 +62,21 @@ def login(payload: LoginInput):
 
 app.mount('/static', StaticFiles(directory=ROOT / 'static'), name='static')
 
+class PgConnection:
+    """psycopg connection that accepts the sqlite-style '?' placeholders used by the routes."""
+    def __init__(self, raw):
+        self.raw = raw
+
+    def execute(self, sql, params=()):
+        return self.raw.execute(sql.replace('?', '%s'), params)
+
 @contextmanager
 def conn():
+    if DATABASE_URL:
+        # prepare_threshold=None: Neon's pooled endpoint runs PgBouncer in transaction mode.
+        with psycopg.connect(DATABASE_URL, row_factory=dict_row, prepare_threshold=None) as connection:
+            yield PgConnection(connection)
+        return
     connection = sqlite3.connect(DB)
     connection.row_factory = sqlite3.Row
     try:
@@ -67,12 +86,16 @@ def conn():
         connection.close()
 
 with conn() as c:
+    if DATABASE_URL:
+        # Serverless instances may cold-start at once; serialize schema creation.
+        c.execute('SELECT pg_advisory_xact_lock(20261025)')
     c.execute('''CREATE TABLE IF NOT EXISTS applications (id TEXT PRIMARY KEY, created_at TEXT NOT NULL,
      updated_at TEXT NOT NULL, company TEXT NOT NULL, purpose TEXT NOT NULL, amount INTEGER NOT NULL,
      months INTEGER NOT NULL, available_cashflow INTEGER NOT NULL, revenue INTEGER NOT NULL,
      existing_payments INTEGER NOT NULL, overdue INTEGER NOT NULL, status TEXT NOT NULL,
      score INTEGER, decision TEXT, alternative_amount INTEGER, explanation TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id = 'BIGSERIAL PRIMARY KEY' if DATABASE_URL else 'INTEGER PRIMARY KEY AUTOINCREMENT'
+    c.execute(f'''CREATE TABLE IF NOT EXISTS events (id {event_id},
      application_id TEXT NOT NULL, occurred_at TEXT NOT NULL, actor TEXT NOT NULL,
      action TEXT NOT NULL, description TEXT NOT NULL)''')
 
@@ -202,7 +225,7 @@ def mock_company(inn: str, authorization: str | None = Header(None)):
 def index(): return FileResponse(ROOT / 'static' / 'index.html')
 
 @app.get('/api/health')
-def health(): return {'status':'ok'}
+def health(): return {'status':'ok', 'database':'postgres' if DATABASE_URL else 'sqlite'}
 
 @app.get('/api/applications')
 def list_applications(role: str = Depends(require('bank'))):

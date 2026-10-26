@@ -31,6 +31,10 @@ if VERCEL_ENV in ('production', 'preview'):
 
 OFFER_VALID_DAYS = float(os.getenv('OFFER_VALID_DAYS', '7'))
 BANK_SLA_HOURS = float(os.getenv('BANK_SLA_HOURS', '24'))
+# Live updates: a stream lives under Vercel's function limit (maxDuration 10 s in vercel.json),
+# then the browser reconnects from the cursor it got; the database is checked every STREAM_POLL_SECONDS.
+STREAM_SECONDS = float(os.getenv('STREAM_SECONDS', '8'))
+STREAM_POLL_SECONDS = float(os.getenv('STREAM_POLL_SECONDS', '1'))
 ENABLE_DEMO_SEED = os.getenv('ENABLE_DEMO_SEED', '1') == '1'
 ENABLE_DEMO_RESET = os.getenv('ENABLE_DEMO_RESET', '0') == '1'
 

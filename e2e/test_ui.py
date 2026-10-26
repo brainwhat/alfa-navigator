@@ -97,6 +97,8 @@ def test_stale_card_is_refreshed(page: Page):
     x = create(page, f'ООО Две вкладки {uuid4().hex[:6]}')
     bank = {'Authorization': 'Bearer ' + TOKENS['bank']}
     assert page.request.post(f"/api/applications/{x['id']}/evaluate", headers=bank).ok
+    # live updates would refresh the card by themselves; without them the command meets a stale version
+    page.route(re.compile(r'/api/changes'), lambda route: route.abort())
     page.goto('/')
     login(page, 'client')
     page.locator('#clientList .item', has_text=x['id']).click()
@@ -109,3 +111,25 @@ def test_stale_card_is_refreshed(page: Page):
     expect(page.locator('#toasts')).to_contain_text('повторите действие')
     expect(card.locator('.pill').first).to_have_text('Условия приняты')
     assert [s['status'] for s in applications(page, x['company'])] == ['accepted']
+
+def test_split_screen_live_updates(page: Page):
+    """Two screens: the bank sees a new application without clicking, the client sees the scoring at once."""
+    company = f'ООО Два экрана {uuid4().hex[:6]}'
+    page.goto('/split')
+    client = page.frame_locator('iframe[title="Кабинет предпринимателя"]')
+    bank = page.frame_locator('iframe[title="Кабинет банка"]')
+    for pane in (client, bank):
+        pane.get_by_label('Демо-пароль').fill(PASSWORD)
+        pane.get_by_role('button', name=re.compile('Войти')).click()
+        expect(pane.locator('#live')).to_have_text('Онлайн')
+
+    client.locator('.chipbtn', has_text='Другие условия').click()
+    client.get_by_label('Компания', exact=True).fill(company)
+    client.get_by_role('button', name=re.compile('Подать заявку')).click()
+    bank_card = bank.locator('#bankDetail')
+    expect(bank_card).to_contain_text(company)  # the selection follows the other screen
+
+    bank_card.get_by_role('button', name=re.compile('Провести скоринг')).click()
+    # the client screen has no other trigger within the 5 s expect timeout: background polling is every 30 s
+    expect(client.locator('#clientDetail')).to_contain_text('Банк предлагает другие условия')
+    expect(client.locator('.toast', has_text='банк провёл скоринг')).to_be_visible()

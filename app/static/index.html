@@ -49,7 +49,7 @@ p{margin:0 0 12px}
 small,.muted{color:var(--t2)}
 .hidden{display:none!important}
 .ph{font-family:Phosphor!important;font-style:normal;font-weight:normal;line-height:1;speak:never;-webkit-font-smoothing:antialiased;display:inline-block}
-.ph-sign-out:before{content:"\e42a"}.ph-storefront:before{content:"\e470"}.ph-bank:before{content:"\e0b4"}.ph-calculator:before{content:"\e538"}.ph-chart-bar:before{content:"\e150"}.ph-tray:before{content:"\e4aa"}.ph-file-text:before{content:"\e23a"}.ph-clock-countdown:before{content:"\ed2c"}.ph-sparkle:before{content:"\e6a2"}.ph-check-circle:before{content:"\e184"}.ph-warning-circle:before{content:"\e4e2"}.ph-x-circle:before{content:"\e4f8"}.ph-info:before{content:"\e2ce"}.ph-magnifying-glass:before{content:"\e30c"}.ph-arrow-right:before{content:"\e06c"}.ph-shield-check:before{content:"\e40c"}.ph-lightning:before{content:"\e2de"}.ph-list-checks:before{content:"\eadc"}
+.ph-sign-out:before{content:"\e42a"}.ph-storefront:before{content:"\e470"}.ph-bank:before{content:"\e0b4"}.ph-calculator:before{content:"\e538"}.ph-chart-bar:before{content:"\e150"}.ph-tray:before{content:"\e4aa"}.ph-file-text:before{content:"\e23a"}.ph-clock-countdown:before{content:"\ed2c"}.ph-sparkle:before{content:"\e6a2"}.ph-check-circle:before{content:"\e184"}.ph-warning-circle:before{content:"\e4e2"}.ph-x-circle:before{content:"\e4f8"}.ph-info:before{content:"\e2ce"}.ph-magnifying-glass:before{content:"\e30c"}.ph-arrow-right:before{content:"\e06c"}.ph-shield-check:before{content:"\e40c"}.ph-lightning:before{content:"\e2de"}.ph-list-checks:before{content:"\eadc"}.ph-columns:before{content:"\e546"}
 
 /* Шапка */
 header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--page) 84%,transparent);backdrop-filter:saturate(180%) blur(16px);-webkit-backdrop-filter:saturate(180%) blur(16px);border-bottom:1px solid var(--line)}
@@ -301,6 +301,17 @@ button.chipbtn{min-height:32px;padding:0 12px;font-size:13px;border-radius:var(-
 button.chipbtn:hover{background:var(--tint-2)}
 .expect{font-size:13px;color:var(--t2);margin:-6px 0 16px}
 .fresh{display:flex;align-items:center;gap:4px;margin-left:auto;font-size:12.5px;color:var(--t3)}
+.live{display:inline-flex;align-items:center;gap:6px;margin-right:8px;color:var(--t2)}
+.live:before{content:'';width:8px;height:8px;border-radius:50%;background:var(--t3)}
+.live.on:before{background:var(--pos-g)}
+.live.lost:before{background:var(--warn-g)}
+a.splitlink{display:inline-flex;align-items:center;gap:6px;font:500 14px/1 var(--font-text);color:var(--t2);text-decoration:none;padding:0 12px;min-height:36px;border-radius:var(--r-ctl);white-space:nowrap}
+a.splitlink:hover{background:var(--tint);color:var(--t1)}
+a.splitlink i{font-size:18px}
+/* Окно в режиме двух экранов (/split): роль закреплена, шапку и выбор роли показывает сама страница /split */
+body.pane header,body.pane footer,body.pane .roles,body.pane .login-hero,body.pane #workspace>.toolbar>.seg{display:none!important}
+body.pane main{padding:16px 16px 24px}
+body.pane .login{grid-template-columns:1fr;min-height:0;max-width:480px;margin:0 auto}
 select.period{width:auto;height:40px;font-size:14px}
 
 /* Аналитика */
@@ -328,8 +339,11 @@ footer{font-size:12px;color:var(--t3);padding:20px 24px 28px;max-width:1240px;ma
   .stats .metric:nth-child(2){animation-delay:.04s}.stats .metric:nth-child(3){animation-delay:.08s}.stats .metric:nth-child(4){animation-delay:.12s}
   .item{animation:fade .35s var(--ease) both}
   .toast{animation:rise .35s var(--ease) both}
+  .flash{animation:flash 1.8s var(--ease)}
   .skeleton span{animation:shimmer 1.4s linear infinite}
 }
+/* Заявка, изменённая другой стороной: короткая подсветка */
+@keyframes flash{from{box-shadow:0 0 0 3px var(--warn-g)}to{box-shadow:0 0 0 3px transparent}}
 @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 @keyframes shimmer{to{background-position:-200% 0}}
@@ -348,7 +362,7 @@ footer{font-size:12px;color:var(--t3);padding:20px 24px 28px;max-width:1240px;ma
 }
 @media (max-width:640px){
   .wrap,main{padding-left:16px;padding-right:16px}
-  .bar-top>.chip,.session .chip{display:none}
+  .bar-top>.chip,.session .chip,a.splitlink{display:none}
   .login-hero{padding:28px;border-radius:24px}.login-card{padding:28px 20px;border-radius:24px}
   .login-hero h2{font-size:32px;line-height:38px}
   .login-hero p{font-size:16px;line-height:24px}
@@ -364,10 +378,10 @@ footer{font-size:12px;color:var(--t3);padding:20px 24px 28px;max-width:1240px;ma
   .fresh{margin-left:0}
 }
 </style></head><body>
-<header><div class="wrap bar-top"><div class="brand"><div class="logo" aria-hidden="true"><span>А</span></div><h1><b>Альфа.</b>Навигатор</h1></div><span class="chip"><i class="ph ph-info"></i>Демо на синтетических данных, не оферта</span><div id="session" class="session hidden"><span id="roleCaption" class="chip"></span><button class="ghost" onclick="logout()" title="Выйти из обоих кабинетов"><i class="ph ph-sign-out"></i>Выйти</button></div></div></header>
+<header><div class="wrap bar-top"><div class="brand"><div class="logo" aria-hidden="true"><span>А</span></div><h1><b>Альфа.</b>Навигатор</h1></div><span class="chip"><i class="ph ph-info"></i>Демо на синтетических данных, не оферта</span><a class="splitlink" href="/split" title="Кабинет предпринимателя и кабинет банка рядом, с обновлением в реальном времени"><i class="ph ph-columns" aria-hidden="true"></i>Два экрана</a><div id="session" class="session hidden"><span id="roleCaption" class="chip"></span><button class="ghost" onclick="logout()" title="Выйти из обоих кабинетов"><i class="ph ph-sign-out"></i>Выйти</button></div></div></header>
 <main><section id="loginPanel" class="login"><div class="login-hero"><div><h2>От потребности бизнеса к обоснованному решению</h2><p>Заявка, предварительная оценка и решение банка в одном кабинете для предпринимателя и кредитного специалиста.</p></div><div class="facts"><div><strong>20 млн ₽</strong><small>максимальная сумма</small></div><div><strong>6-60 мес.</strong><small>срок кредита</small></div><div><strong>24 ч</strong><small>SLA ответа банка</small></div></div></div>
 <div class="login-card"><form onsubmit="event.preventDefault();login()"><h2>Вход в демо-кабинет</h2><p class="lead">Выберите роль. Это учебные аккаунты на синтетических данных.</p><div class="roles" role="radiogroup" aria-label="Роль"><button type="button" class="role on" role="radio" aria-checked="true" data-role="client" onclick="pickRole('client')"><i class="ph ph-storefront"></i><span><strong>Предприниматель</strong><small>Заявка, симулятор платежа, предложения банка</small></span></button><button type="button" class="role" role="radio" aria-checked="false" data-role="bank" onclick="pickRole('bank')"><i class="ph ph-bank"></i><span><strong>Сотрудник банка</strong><small>Очередь с SLA, скоринг, аналитика</small></span></button></div><select id="loginRole" class="hidden" aria-hidden="true" tabindex="-1"><option value="client">Предприниматель</option><option value="bank">Сотрудник банка</option></select><div id="pwField"><label for="loginPassword">Демо-пароль</label><input id="loginPassword" type="password" autocomplete="off" placeholder="Пароль выбранной роли"></div><button type="submit" id="loginBtn">Войти<i class="ph ph-arrow-right"></i></button><p class="fine">У каждой роли свой пароль, он задаётся переменными окружения DEMO_CLIENT_PASSWORD и DEMO_BANK_PASSWORD. Это не промышленная авторизация.</p></form></div></section>
-<div id="workspace" class="hidden"><div class="toolbar"><div class="seg" role="tablist" aria-label="Кабинет"><button id="clientTab" class="active" role="tab" aria-selected="true" onclick="tab('client')"><i class="ph ph-storefront"></i>Кабинет предпринимателя</button><button id="bankTab" role="tab" aria-selected="false" tabindex="-1" onclick="tab('bank')"><i class="ph ph-bank"></i>Кабинет банка</button></div><span class="fresh"><span id="freshness" role="status"></span><button class="ghost" onclick="refresh()">Обновить</button></span></div>
+<div id="workspace" class="hidden"><div class="toolbar"><div class="seg" role="tablist" aria-label="Кабинет"><button id="clientTab" class="active" role="tab" aria-selected="true" onclick="tab('client')"><i class="ph ph-storefront"></i>Кабинет предпринимателя</button><button id="bankTab" role="tab" aria-selected="false" tabindex="-1" onclick="tab('bank')"><i class="ph ph-bank"></i>Кабинет банка</button></div><span class="fresh"><span id="live" class="live hidden"></span><span id="freshness" role="status"></span><button class="ghost" onclick="refresh()">Обновить</button></span></div>
 <div id="client"><div class="grid client"><section><div class="card"><h2>Новая заявка</h2><p class="sub">Укажите параметры бизнеса и цель финансирования.</p>
 <div class="presets" role="group" aria-label="Готовые сценарии"><small>Сценарии для демо:</small><button type="button" class="chipbtn" onclick="preset('approve')">Одобрение</button><button type="button" class="chipbtn" onclick="preset('counter')">Другие условия</button><button type="button" class="chipbtn" onclick="preset('clarify')">Уточнение</button><button type="button" class="chipbtn" onclick="preset('manual')">Ручное решение</button></div><p id="presetNote" class="expect hidden" role="status"></p>
 <div id="resubmit" class="notice warnbox hidden"></div>

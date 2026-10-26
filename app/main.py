@@ -3,7 +3,7 @@
 The app itself: request log and security headers, one error format, static files and the routers.
 Modules: settings (environment), storage (database, migrations, event log), policy (scoring rules),
 schedules (loan arithmetic), workflow (application state and transitions), schemas (API models),
-handlers/* (HTTP endpoints), demo (synthetic data)."""
+handlers/* (HTTP endpoints, live updates in handlers/live), demo (synthetic data)."""
 import json
 import re
 import sys
@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import demo, settings
-from app.handlers import analytics, applications, calculations, system
+from app.handlers import analytics, applications, calculations, live, system
 from app.settings import log
 from app.storage import SCHEMA_VERSION, migrate, sql_ms
 
@@ -36,7 +36,8 @@ async def observe(request: Request, call_next):
     path = request.url.path
     response.headers['X-Request-ID'] = request_id
     response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
+    # the two-screen page /split frames the app itself; other sites still cannot
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['Referrer-Policy'] = 'no-referrer'
     if path.startswith('/static/'):
         # index.html links static files with ?v=<content hash>, so a versioned URL never changes
@@ -94,7 +95,7 @@ async def validation_error(request: Request, exc: RequestValidationError):
     return JSONResponse({'detail': 'Проверьте данные. ' + detail, 'errors': errors}, status_code=422)
 
 app.mount('/static', StaticFiles(directory=settings.ROOT / 'static'), name='static')
-for module in (system, calculations, applications, analytics, demo):
+for module in (system, calculations, applications, analytics, live, demo):
     app.include_router(module.router)
 
 if settings.MIGRATE_ON_START:

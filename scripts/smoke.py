@@ -5,7 +5,7 @@ Usage: python scripts/smoke.py BASE_URL [--full] [--strict]
   --strict  fail instead of skipping when Vercel Deployment Protection blocks access
 
 Without --full the check only reads: readiness (database answers, schema is current), the page,
-both logins and an authenticated read of the application list.
+both logins, an authenticated read of the application list and the live change feed.
 
 Env: DEMO_CLIENT_PASSWORD / DEMO_BANK_PASSWORD (fall back to DEMO_LOGIN_PASSWORD, default alfa-demo-2026),
      VERCEL_AUTOMATION_BYPASS_SECRET (optional, for protected Vercel deployments).
@@ -58,6 +58,24 @@ def login(base, role):
     return json.loads(text)['access_token']
 
 
+def check_stream(base, token):
+    """The first message of the change stream comes at once unless a proxy buffers the stream;
+    a buffered stream is only a warning, the browser then polls /api/changes."""
+    headers = {'Authorization': 'Bearer ' + token, **({'x-vercel-protection-bypass': BYPASS} if BYPASS else {})}
+    started = time.monotonic()
+    with urllib.request.urlopen(urllib.request.Request(base + '/api/changes/stream', headers=headers), timeout=30) as response:
+        assert response.headers['Content-Type'].startswith('text/event-stream'), 'поток изменений отдаёт не text/event-stream'
+        first = next((json.loads(line[5:]) for line in response if line.startswith(b'data:')), None)
+        delay = time.monotonic() - started
+    assert first and first['cursor'], 'в потоке изменений нет курсора'
+    _, text = call(base, '/api/changes?after=' + first['cursor'], token=token)
+    assert 'changes' in json.loads(text), '/api/changes не вернул изменения'
+    if delay < 3:
+        print(f'ok  поток изменений: первое сообщение за {delay:.1f} с')
+    else:
+        print(f'::warning::Поток изменений буферизуется (первое сообщение за {delay:.1f} с): браузер перейдёт на опрос /api/changes')
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     if not args:
@@ -86,6 +104,7 @@ def main():
 
     _, text = call(base, '/api/applications', token=bank)
     print(f'ok  чтение очереди из базы: {len(json.loads(text))} заявок')
+    check_stream(base, client)
 
     if '--full' in sys.argv:
         application = {'company': 'ООО Smoke-тест', 'purpose': 'Проверка CI', 'amount': 1_000_000, 'months': 24,

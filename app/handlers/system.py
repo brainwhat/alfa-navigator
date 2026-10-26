@@ -22,14 +22,24 @@ def login(payload: LoginInput):
 
 STATIC_FILES = sorted(p for p in (settings.ROOT / 'static').rglob('*') if p.is_file())
 
-@lru_cache(maxsize=1)
-def index_html(stamp):
-    """index.html with ?v=<content hash> on static links; rebuilt only when a static file changes."""
-    digest = hashlib.sha256(b''.join(p.read_bytes() for p in STATIC_FILES if p.name != 'index.html')).hexdigest()[:10]
-    return (settings.ROOT / 'static' / 'index.html').read_text(encoding='utf-8').replace('__ASSET_VERSION__', digest)
+PAGES = ('index.html', 'split.html')
+
+@lru_cache(maxsize=4)
+def page_html(name, stamp):
+    """A page with ?v=<content hash> on static links; rebuilt only when a static file changes."""
+    digest = hashlib.sha256(b''.join(p.read_bytes() for p in STATIC_FILES if p.name not in PAGES)).hexdigest()[:10]
+    return (settings.ROOT / 'static' / name).read_text(encoding='utf-8').replace('__ASSET_VERSION__', digest)
+
+def stamp():
+    return max(p.stat().st_mtime_ns for p in STATIC_FILES)
 
 @router.get('/', response_class=HTMLResponse, include_in_schema=False)
-def index(): return index_html(max(p.stat().st_mtime_ns for p in STATIC_FILES))
+def index(): return page_html('index.html', stamp())
+
+@router.get('/split', response_class=HTMLResponse, include_in_schema=False)
+def split():
+    """Both roles side by side: the app twice in frames, ?pane= pins each one to its role."""
+    return page_html('split.html', stamp())
 
 def engine():
     return 'postgres' if settings.DATABASE_URL else 'sqlite'

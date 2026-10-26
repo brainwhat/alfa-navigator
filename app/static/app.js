@@ -18,6 +18,11 @@ let busy = false;
 let resubmitOf = null;  // заявка, вместо которой подаётся новая
 let createKey = null;   // Idempotency-Key текущей попытки подачи
 let analyticsDays = '';
+let flashIds = new Set();  // заявки, которые только что изменила другая сторона
+
+// Режим двух экранов: страница /split открывает приложение дважды, ?pane= закрепляет роль за окном
+const pane = ['client', 'bank'].find(r => r === new URLSearchParams(location.search).get('pane')) || null;
+if (pane) document.body.classList.add('pane');
 
 const statusName = {submitted: 'На рассмотрении', needs_info: 'Нужны сведения', clarified: 'Уточнена', approved: 'Одобрена', counteroffer: 'Другие условия', rejected: 'Отказ', accepted: 'Условия приняты', withdrawn: 'Отозвана', expired: 'Предложение истекло'};
 const fieldName = {available_cashflow: 'Свободный денежный поток, ₽/мес.', revenue: 'Месячная выручка, ₽', existing_payments: 'Платежи по действующим долгам, ₽/мес.', overdue: 'Наличие просрочек'};
@@ -48,7 +53,7 @@ function minutesLeft(iso) { return Math.round((new Date(iso) - Date.now()) / 600
 function toast(msg, kind) {
   const t = document.createElement('div');
   t.className = 'toast' + (kind ? ' ' + kind : '');
-  t.innerHTML = `<i class="ph ${kind === 'error' ? 'ph-warning-circle' : 'ph-check-circle'}"></i><span>${safe(msg)}</span>`;
+  t.innerHTML = `<i class="ph ${{error: 'ph-warning-circle', live: 'ph-lightning'}[kind] || 'ph-check-circle'}"></i><span>${safe(msg)}</span>`;
   $('toasts').append(t);
   setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, kind === 'error' ? 6000 : 4200);
 }
@@ -88,13 +93,19 @@ async function api(path, method = 'GET', body, {headers = {}, signal, timeout = 
 }
 
 // Токены ролей живут до закрытия вкладки, чтобы переключаться между кабинетами без повторного входа
-let tokens = {};
-try { tokens = JSON.parse(sessionStorage.getItem('navTokens')) || {}; } catch (e) { /* хранилище недоступно */ }
-function saveTokens(role) {
-  try {
-    sessionStorage.setItem('navTokens', JSON.stringify(tokens));
-    if (role) sessionStorage.setItem('navRole', role);
-  } catch (e) { /* хранилище недоступно */ }
+function readTokens() {
+  try { return JSON.parse(sessionStorage.getItem('navTokens')) || {}; } catch (e) { return {}; }
+}
+let tokens = readTokens();
+// Оба окна /split пишут в одно хранилище вкладки: перед записью берём его текущее содержимое
+function storeToken(role, token) {
+  tokens = {...readTokens(), [role]: token};
+  if (!token) delete tokens[role];
+  try { sessionStorage.setItem('navTokens', JSON.stringify(tokens)); } catch (e) { /* хранилище недоступно */ }
+}
+function saveRole(role) {
+  if (pane) return;  // окно /split не меняет роль, с которой откроется обычный экран
+  try { sessionStorage.setItem('navRole', role); } catch (e) { /* хранилище недоступно */ }
 }
 function pickRole(r) {
   $('loginRole').value = r;
@@ -108,7 +119,7 @@ function pickRole(r) {
   $('loginBtn').innerHTML = (has ? 'Продолжить' : 'Войти') + '<i class="ph ph-arrow-right"></i>';
 }
 function tab(x) {
-  if (!authToken) return;
+  if (!authToken || pane) return;
   if (tokens[x]) return enter(x);
   showLogin(x);
 }
@@ -132,7 +143,7 @@ async function enter(role) {
   authToken = tokens[role];
   mode = role;
   current = null;  // карточку нужно перерисовать с действиями новой роли
-  saveTokens(role);
+  saveRole(role);
   $('loginPassword').value = '';
   $('workspace').classList.remove('hidden');
   $('session').classList.remove('hidden');
@@ -141,6 +152,7 @@ async function enter(role) {
   $('bank').classList.toggle('hidden', role !== 'bank');
   selectTab(['clientTab', 'bankTab'], role + 'Tab');
   $('roleCaption').textContent = 'Роль: ' + roleName[role];
+  startLive();
   await refresh();
   if (role === 'client') simulate();
 }
@@ -149,16 +161,16 @@ async function login() {
   if (tokens[role]) return enter(role);
   try {
     const res = await api('/demo/login', 'POST', {role, password: $('loginPassword').value});
-    tokens[role] = res.access_token;
-    saveTokens();
+    storeToken(role, res.access_token);
     await enter(role);
   } catch (e) {
     toast(e.message, 'error');
   }
 }
 function logout() {
+  stopLive();
   tokens = {};
-  saveTokens();
+  try { sessionStorage.removeItem('navTokens'); } catch (e) { /* хранилище недоступно */ }
   selected = null;
   current = null;
   records = [];
@@ -185,8 +197,8 @@ async function refresh({quiet = false} = {}) {
   } catch (e) {
     if (e.name === 'AbortError' || seq !== refreshSeq) return;
     if (e.status === 401 || e.status === 403) {
-      delete tokens[mode];
-      saveTokens();
+      stopLive();
+      storeToken(mode, null);
       showLogin(mode);
       return toast('Сессия недействительна, войдите снова', 'error');
     }
@@ -195,7 +207,116 @@ async function refresh({quiet = false} = {}) {
   }
 }
 setInterval(() => { if (authToken && !document.hidden) refresh({quiet: true}); }, POLL_MS);
-document.addEventListener('visibilitychange', () => { if (!document.hidden && authToken) refresh({quiet: true}); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return stopLive();  // скрытая вкладка не держит соединение с сервером
+  if (authToken) {
+    startLive();
+    refresh({quiet: true});
+  }
+});
+
+// Живые обновления: сервер присылает новые события журнала потоком SSE. Поток читается через fetch,
+// чтобы передать токен в заголовке, а не в адресе. Сервер закрывает поток через несколько секунд
+// (лимит функции Vercel), и окно переподключается с последнего курсора, ничего не теряя.
+// Если прокси буферизует поток и первое сообщение не пришло за 5 секунд, окно опрашивает /api/changes.
+const LIVE_FIRST_MS = 5000, LIVE_POLL_MS = 3000;
+let liveCtrl = null, liveCursor = null, liveBuffered = false;
+const liveAction = {submitted: 'новая заявка', evaluated: 'банк провёл скоринг', requested_info: 'банк запросил уточнение',
+  clarified: 'клиент уточнил данные', accepted: 'клиент принял условия', extended: 'банк продлил предложение',
+  withdrawn: 'клиент отозвал заявку', manual_decision: 'банк вручную изменил решение', expired: 'предложение истекло'};
+function sleep(ms, signal) {
+  return new Promise(resolve => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, {once: true});
+  });
+}
+function liveState(state) {
+  const el = $('live');
+  el.className = 'live ' + state;
+  el.textContent = {on: 'Онлайн', poll: 'Онлайн, проверка раз в 3 с', lost: 'Нет связи, переподключаемся'}[state] || '';
+  el.title = state === 'on' ? 'Изменения другой стороны появляются сразу' : '';
+  el.classList.toggle('hidden', !el.textContent);
+}
+function startLive() {
+  stopLive();
+  if (!authToken || document.hidden) return;
+  liveCtrl = new AbortController();
+  liveLoop(liveCtrl);
+}
+function stopLive() {
+  liveCtrl?.abort();
+  liveCtrl = null;
+  liveState('off');
+}
+async function liveLoop(ctrl) {
+  let failures = 0;
+  while (!ctrl.signal.aborted) {
+    try {
+      if (liveBuffered) {
+        onChanges(await api('/changes' + (liveCursor ? '?after=' + liveCursor : ''), 'GET', null, {signal: ctrl.signal}));
+        liveState('poll');
+        await sleep(LIVE_POLL_MS, ctrl.signal);
+      } else {
+        const started = Date.now();
+        await streamChanges(ctrl);
+        if (Date.now() - started < 2000) await sleep(2000, ctrl.signal);  // поток оборвали сразу: не заваливаем сервер
+      }
+      failures = 0;
+    } catch (e) {
+      if (ctrl.signal.aborted) return;
+      if (e.status === 401 || e.status === 403) return liveState('off');  // повторный вход предложит refresh()
+      liveState('lost');
+      await sleep(Math.min(30000, 1000 * 2 ** ++failures), ctrl.signal);
+    }
+  }
+}
+async function streamChanges(ctrl) {
+  const req = new AbortController(), stop = () => req.abort();
+  ctrl.signal.addEventListener('abort', stop, {once: true});
+  const first = setTimeout(() => { liveBuffered = true; req.abort(); }, LIVE_FIRST_MS);
+  try {
+    const res = await fetch('/api/changes/stream' + (liveCursor ? '?after=' + liveCursor : ''), {headers: {Authorization: 'Bearer ' + authToken}, signal: req.signal});
+    if (!res.ok) throw Object.assign(Error('Поток изменений: ' + res.status), {status: res.status});
+    const reader = res.body.getReader(), decoder = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) return;
+      buf += decoder.decode(value, {stream: true});
+      let end;
+      while ((end = buf.indexOf('\n\n')) >= 0) {
+        const data = buf.slice(0, end).split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5)).join('\n');
+        buf = buf.slice(end + 2);
+        if (!data) continue;
+        clearTimeout(first);
+        liveState('on');
+        onChanges(JSON.parse(data));
+      }
+    }
+  } catch (e) {
+    if (liveBuffered && !ctrl.signal.aborted) return;  // поток буферизуется: дальше опрос
+    throw e;
+  } finally {
+    clearTimeout(first);
+    ctrl.signal.removeEventListener('abort', stop);
+  }
+}
+function onChanges(d) {
+  const known = liveCursor !== null;
+  liveCursor = d.cursor;
+  if (!known || (!d.changes.length && !d.reset)) return;
+  const others = d.changes.filter(c => c.actor !== mode);
+  if (others.length > 3) toast(`Обновлено заявок: ${new Set(others.map(c => c.application_id)).size}`, 'live');
+  else for (const c of others) toast(`${c.company || 'Заявка'}, № ${c.application_id}: ${liveAction[c.action] || c.description}`, 'live');
+  flashIds = new Set(others.map(c => c.application_id));
+  refresh({quiet: true}).finally(() => flashIds.clear());
+}
+function flash(el) {
+  el.classList.remove('flash');
+  void el.offsetWidth;  // перезапуск анимации
+  el.classList.add('flash');
+  el.addEventListener('animationend', () => el.classList.remove('flash'), {once: true});
+}
 
 const bankEmpty = $('bankDetail').innerHTML;
 function clearDetail() {
@@ -236,7 +357,7 @@ function bankQueue() {
     : (a, b) => rank(a) - rank(b) || (rank(a) < 3 ? a.updated_at.localeCompare(b.updated_at) : b.created_at.localeCompare(a.created_at)));
 }
 function itemHtml(x, extra = '') {
-  return `<div class="item ${selected === x.id ? 'selected' : ''}" tabindex="0" role="button" aria-pressed="${selected === x.id}" onclick="pick('${x.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();pick('${x.id}')}">
+  return `<div class="item ${selected === x.id ? 'selected' : ''}${flashIds.has(x.id) ? ' flash' : ''}" tabindex="0" role="button" aria-pressed="${selected === x.id}" onclick="pick('${x.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();pick('${x.id}')}">
     <div class="row"><strong>${safe(x.company)}${x.id.startsWith('DEMO') ? '<span class="chip demo">демо</span>' : ''}</strong><span class="pill ${x.status}">${statusName[x.status] || x.status}</span></div>
     <div class="meta"><span>№ ${safe(x.id)}</span><span>${money(x.amount)}</span><span>${x.months} мес.</span></div>${extra}</div>`;
 }
@@ -255,11 +376,27 @@ function renderList() {
     : emptyState('ph-tray', 'Заявок пока нет', 'Нажмите «Заполнить демо-данными», чтобы увидеть очередь');
 }
 for (const id of ['fStatus', 'fSort', 'fSearch', 'fMin', 'fMax']) $(id).addEventListener('input', renderList);
-async function pick(id) {
+async function pick(id, announce = true) {
   selected = id;
+  if (announce) shareSelection(id);
   renderList();
   try { await loadDetail(); } catch (e) { toast(e.message, 'error'); }
 }
+// В режиме двух экранов выбор заявки виден и во втором окне; /split пересылает сообщение
+function shareSelection(id) {
+  if (pane) parent.postMessage({type: 'nav:select', id}, location.origin);
+}
+addEventListener('message', async e => {
+  if (!pane || e.origin !== location.origin || e.data?.type !== 'nav:select' || !authToken) return;
+  const id = e.data.id;
+  if (id === selected) return;
+  if (!records.some(r => r.id === id)) await refresh({quiet: true});  // заявку могли подать только что
+  if (!records.some(r => r.id === id)) return;
+  await pick(id, false);
+  // в узком окне карточка ниже очереди; плавная прокрутка в окне без фокуса не срабатывает
+  const box = detailBox(), top = box.getBoundingClientRect().top;
+  if (top < 0 || top > innerHeight * 0.6) box.scrollIntoView({block: 'start'});
+});
 
 // Карточка. Номер запроса и отмена предыдущего: ответ по прежнему выбору не перерисует карточку.
 let detailSeq = 0, detailAbort = null;
@@ -277,8 +414,10 @@ async function loadDetail({quiet = false} = {}) {
   if (seq !== detailSeq || id !== selected || role !== mode) return;
   // тихое обновление не трогает карточку, пока заявка не изменилась: не сбрасываем ввод и раскрытые графики
   if (quiet && current && current.id === x.id && current.version === x.version) return;
+  const changed = quiet && current?.id === x.id;
   current = x;
   renderDetail(x);
+  if (changed && flashIds.has(x.id)) flash(detailBox());
 }
 function kv(label, value) { return `<div><small>${label}</small><strong>${value}</strong></div>`; }
 function num(label, value) { return `<div><small>${label}</small><strong>${value}</strong></div>`; }
@@ -716,6 +855,7 @@ $('loanForm').onsubmit = async e => {
     cancelResubmit();
     selected = row.id;
     current = null;
+    shareSelection(row.id);
     await refresh();
     toast(`Заявка № ${row.id} отправлена. Статус и ответ банка — в карточке ниже.`);
     $('clientDetail').scrollIntoView({behavior: 'smooth', block: 'start'});
@@ -806,6 +946,6 @@ simulate();
 {
   let last = null;
   try { last = sessionStorage.getItem('navRole'); } catch (e) { /* хранилище недоступно */ }
-  const role = tokens[last] ? last : Object.keys(tokens).find(r => tokens[r]);
-  if (role) enter(role); else pickRole('client');
+  const role = pane || (tokens[last] ? last : Object.keys(tokens).find(r => tokens[r]));
+  if (tokens[role]) enter(role); else pickRole(role || 'client');
 }

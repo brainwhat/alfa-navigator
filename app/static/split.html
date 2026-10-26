@@ -1,0 +1,83 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Альфа.Навигатор: два экрана</title>
+<style>
+/* Те же токены, что в index.html; здесь только рамка двух окон приложения */
+@font-face{font-family:Onest;src:url(/static/fonts/onest-cyrillic.woff2?v=__ASSET_VERSION__) format('woff2');font-weight:100 900;font-display:swap;unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
+@font-face{font-family:Onest;src:url(/static/fonts/onest-latin.woff2?v=__ASSET_VERSION__) format('woff2');font-weight:100 900;font-display:swap;unicode-range:U+0000-00FF,U+2000-206F}
+@font-face{font-family:Phosphor;src:url(/static/icons/Phosphor.woff2?v=__ASSET_VERSION__) format('woff2');font-display:block}
+:root{
+  --font-text:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Helvetica,sans-serif;
+  --font-display:'Styrene UI',Onest,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --accent:#ef3124;--page:#f2f3f5;--surface:#fff;--raised:#fff;
+  --t1:rgba(3,3,6,.88);--t2:rgba(4,4,19,.55);--t3:rgba(5,8,29,.38);
+  --tint:rgba(38,55,88,.06);--line:rgba(30,43,68,.08);--pos-g:#0cc44d;
+  --shadow-xs:0 4px 8px rgba(0,0,0,.04),0 0 1px rgba(0,0,0,.04);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --accent:#f83a2a;--page:#121213;--surface:#1c1c1e;--raised:#29292c;
+  --t1:rgba(255,255,255,.94);--t2:rgba(238,238,251,.55);--t3:rgba(233,233,250,.37);
+  --tint:rgba(214,214,229,.07);--line:rgba(225,225,248,.09);
+  --shadow-xs:0 0 0 1px rgba(255,255,255,.04);
+  color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:15px/1.5 var(--font-text);color:var(--t1);background:var(--page);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow:hidden}
+.ph{font-family:Phosphor!important;font-style:normal;font-weight:normal;line-height:1;speak:never;display:inline-block}
+.ph-storefront:before{content:"\e470"}.ph-bank:before{content:"\e0b4"}.ph-arrow-left:before{content:"\e058"}.ph-broadcast:before{content:"\e0f2"}
+header{display:flex;align-items:center;gap:16px;height:56px;padding:0 16px;border-bottom:1px solid var(--line);flex:none}
+.brand{display:flex;align-items:center;gap:10px}
+.logo{width:30px;height:30px;border-radius:9px;background:var(--accent);color:#fff;display:grid;place-items:center;font:600 18px/1 var(--font-display);position:relative}
+.logo:after{content:'';position:absolute;left:9px;right:9px;bottom:6px;height:2px;background:#fff;border-radius:1px}
+.logo span{transform:translateY(-2px)}
+h1{font:600 17px/1 var(--font-display);margin:0;white-space:nowrap}
+h1 b{color:var(--accent);font-weight:600}
+.note{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--t2);margin-right:auto;min-width:0}
+.note i{color:var(--pos-g);font-size:16px}
+a.back{display:inline-flex;align-items:center;gap:6px;font:500 14px/1 var(--font-text);color:var(--t2);text-decoration:none;padding:10px 12px;border-radius:12px;white-space:nowrap}
+a.back:hover{background:var(--tint);color:var(--t1)}
+a.back:focus-visible,.seg button:focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 40%,transparent);outline-offset:1px}
+.seg{display:none;background:var(--tint);padding:4px;border-radius:14px;gap:2px;margin:8px 16px 0}
+.seg button{flex:1;font:500 14px/1.2 var(--font-text);min-height:40px;border:0;border-radius:10px;background:transparent;color:var(--t2);display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+.seg button.active{background:var(--raised);color:var(--t1);box-shadow:var(--shadow-xs)}
+main{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line)}
+.pane{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--page)}
+.pane h2{display:flex;align-items:center;gap:8px;margin:0;padding:10px 16px;font:600 14px/1 var(--font-display);color:var(--t2);border-bottom:1px solid var(--line)}
+.pane h2 i{font-size:18px;color:var(--t1)}
+iframe{flex:1;width:100%;border:0;background:var(--page)}
+@media (max-width:900px){
+  .note{display:none}
+  h1{margin-right:auto}
+  .seg{display:flex}
+  main{grid-template-columns:1fr;gap:0}
+  .pane h2{display:none}
+  .pane:not(.on){display:none}
+}
+</style></head><body>
+<header><div class="brand"><div class="logo" aria-hidden="true"><span>А</span></div><h1><b>Альфа.</b>Навигатор</h1></div>
+<span class="note"><i class="ph ph-broadcast" aria-hidden="true"></i>Два экрана: действия одной стороны сразу видны другой, выбор заявки общий</span>
+<a class="back" href="/"><i class="ph ph-arrow-left" aria-hidden="true"></i>Один экран</a></header>
+<div class="seg" role="tablist" aria-label="Экран"><button id="clientPaneTab" class="active" role="tab" aria-selected="true" aria-controls="clientPane" onclick="show('client')"><i class="ph ph-storefront"></i>Предприниматель</button><button id="bankPaneTab" role="tab" aria-selected="false" aria-controls="bankPane" tabindex="-1" onclick="show('bank')"><i class="ph ph-bank"></i>Банк</button></div>
+<main>
+<section id="clientPane" class="pane on" role="tabpanel" aria-labelledby="clientPaneTab"><h2><i class="ph ph-storefront" aria-hidden="true"></i>Кабинет предпринимателя</h2><iframe src="/?pane=client" title="Кабинет предпринимателя"></iframe></section>
+<section id="bankPane" class="pane" role="tabpanel" aria-labelledby="bankPaneTab"><h2><i class="ph ph-bank" aria-hidden="true"></i>Кабинет банка</h2><iframe src="/?pane=bank" title="Кабинет банка"></iframe></section>
+</main>
+<script>
+'use strict';
+// На узком экране окна переключаются вкладками, на широком видны оба
+function show(role) {
+  for (const r of ['client', 'bank']) {
+    const on = r === role, tab = document.getElementById(r + 'PaneTab');
+    document.getElementById(r + 'Pane').classList.toggle('on', on);
+    tab.classList.toggle('active', on);
+    tab.setAttribute('aria-selected', on);
+    tab.tabIndex = on ? 0 : -1;
+  }
+}
+// Выбор заявки в одном окне пересылается другому: оба показывают одну и ту же заявку
+const frames = [...document.querySelectorAll('iframe')];
+addEventListener('message', e => {
+  if (e.origin !== location.origin || e.data?.type !== 'nav:select') return;
+  for (const f of frames) if (f.contentWindow !== e.source) f.contentWindow.postMessage(e.data, location.origin);
+});
+</script></body></html>

@@ -1168,6 +1168,134 @@
         }
       }
     },
+    "/api/changes": {
+      "get": {
+        "summary": "Changes Since",
+        "description": "Changes since the cursor in one answer: the fallback where a proxy buffers the event stream.",
+        "operationId": "changes_since_api_changes_get",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{1,18}-\\d{1,9}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Курсор из предыдущего ответа; без него — только текущий курсор",
+              "title": "After"
+            },
+            "description": "Курсор из предыдущего ответа; без него — только текущий курсор"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Changes"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/changes/stream": {
+      "get": {
+        "summary": "Changes Stream",
+        "description": "Server-sent events: the current cursor at once, then every change while the stream lives (STREAM_SECONDS).\nThe stream then ends and the browser reconnects with the last cursor, so nothing is lost in between.",
+        "operationId": "changes_stream_api_changes_stream_get",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d{1,18}-\\d{1,9}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Курсор, с которого продолжить",
+              "title": "After"
+            },
+            "description": "Курсор, с которого продолжить"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Поток событий: в data тот же объект, что у /api/changes",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/demo/seed": {
       "post": {
         "summary": "Seed Demo",
@@ -1760,6 +1888,80 @@
           "contributions"
         ],
         "title": "Assessment"
+      },
+      "Change": {
+        "properties": {
+          "application_id": {
+            "type": "string",
+            "title": "Application Id"
+          },
+          "company": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company",
+            "description": "Нет, если заявку уже удалили"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "occurred_at": {
+            "type": "string",
+            "title": "Occurred At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "application_id",
+          "actor",
+          "action",
+          "description",
+          "occurred_at"
+        ],
+        "title": "Change"
+      },
+      "Changes": {
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "title": "Cursor",
+            "description": "Передайте в after следующего запроса, чтобы получить только новые изменения"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/Change"
+            },
+            "type": "array",
+            "title": "Changes",
+            "description": "Новые события журнала, старые первыми"
+          },
+          "reset": {
+            "type": "boolean",
+            "title": "Reset",
+            "description": "Изменился состав заявок или изменений больше, чем в ответе: перечитайте список целиком"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cursor",
+          "changes",
+          "reset"
+        ],
+        "title": "Changes"
       },
       "Clarification": {
         "properties": {

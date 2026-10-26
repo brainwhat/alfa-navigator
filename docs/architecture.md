@@ -24,7 +24,8 @@ flowchart LR
 | `app/handlers/applications.py` | Очереди, создание заявки, команды обеих ролей (`If-Match`, проверка роли и статуса) |
 | `app/handlers/analytics.py` | Воронка по журналу событий, исходы предложений, ставки, SLA |
 | `app/handlers/calculations.py` | Предварительная оценка, график платежей, симулятор — ничего не сохраняют |
-| `app/handlers/system.py` | Вход, страница, `/api/health`, `/api/ready`, заглушка ИНН |
+| `app/handlers/system.py` | Вход, страницы `/` и `/split`, `/api/health`, `/api/ready`, заглушка ИНН |
+| `app/handlers/live.py` | Живые обновления: изменения журнала после курсора, ответом или потоком SSE |
 | `app/demo.py` | Синтетические сценарии и `/api/demo/*`; шаги выполняются настоящими обработчиками |
 | `app/workflow.py` | Сервис переходов: чтение с ленивым истечением, `transition` с проверкой версии, выдача предложений, чей ход и SLA |
 | `app/policy.py` | Правила demo-rules-v1: балл, вклад факторов, решение, альтернативы, советы, ставка по баллу |
@@ -35,7 +36,7 @@ flowchart LR
 | `app/auth.py` | Демо-токены ролей |
 
 `policy` и `schedules` не знают о базе и HTTP, поэтому правила и расчёты проверяются напрямую. Настройки читаются как `settings.X` в момент вызова, тесты меняют их через `monkeypatch`.
-- `app/static/index.html` — разметка и стили; `app/static/app.js` — клиентская логика. Статика отдаётся с `?v=<хеш содержимого>` и кешируется навсегда; HTML и API — `no-store`.
+- `app/static/index.html` — разметка и стили; `app/static/app.js` — клиентская логика; `app/static/split.html` — два окна приложения во фреймах (`/?pane=client`, `/?pane=bank`), пересылает между ними выбор заявки через `postMessage`. Поэтому `X-Frame-Options: SAMEORIGIN`, а не `DENY`. Статика отдаётся с `?v=<хеш содержимого>` и кешируется навсегда; HTML и API — `no-store`.
 
 ## Состояния заявки
 
@@ -117,6 +118,8 @@ stateDiagram-v2
 | POST | `/api/applications/{id}/extend` | банк | Продление предложения, в том числе истёкшего |
 | POST | `/api/applications/{id}/accept` | клиент | Принятие сохранённого предложения |
 | POST | `/api/applications/{id}/withdraw` | клиент | Отзыв заявки |
+| GET | `/api/changes` | любая | Изменения после курсора `?after=`: события журнала, новый курсор, `reset` — перечитать список |
+| GET | `/api/changes/stream` | любая | То же потоком SSE: сразу текущее состояние, затем каждое изменение, через `STREAM_SECONDS` поток закрывается |
 | GET | `/api/analytics` | банк | Воронка по истории событий, SLA, ставки; `?days=N` — когорта по дате подачи |
 | POST/DELETE | `/api/demo/seed` | банк | Создать или удалить синтетические заявки `DEMO…` |
 | GET | `/api/mock/company/{inn}` | любая | Заглушка проверки ИНН |

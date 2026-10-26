@@ -245,3 +245,16 @@ class SeedOut(BaseModel):
 
 class DeletedOut(BaseModel):
     deleted: int
+
+class Change(BaseModel):
+    application_id: str
+    company: str | None = Field(None, description='Нет, если заявку уже удалили')
+    actor: str
+    action: str
+    description: str
+    occurred_at: str
+
+class Changes(BaseModel):
+    cursor: str = Field(description='Передайте в after следующего запроса, чтобы получить только новые изменения')
+    changes: list[Change] = Field(description='Новые события журнала, старые первыми')
+    reset: bool = Field(description='Изменился состав заявок или изменений больше, чем в ответе: перечитайте список целиком')

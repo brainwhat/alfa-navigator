@@ -43,11 +43,68 @@
         }
       }
     },
-    "/api/my-applications": {
+    "/api/health": {
       "get": {
-        "summary": "My Applications",
-        "operationId": "my_applications_api_my_applications_get",
+        "summary": "Health",
+        "description": "Liveness: the process answers. Whether it can serve requests is /api/ready.",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ready": {
+      "get": {
+        "summary": "Ready",
+        "description": "Readiness: the database answers and its schema is current; 503 otherwise.",
+        "operationId": "ready_api_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Readiness"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "База недоступна или схема не обновлена",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Readiness"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mock/company/{inn}": {
+      "get": {
+        "summary": "Mock Company",
+        "operationId": "mock_company_api_mock_company__inn__get",
         "parameters": [
+          {
+            "name": "inn",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Inn"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -70,13 +127,7 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ListItem"
-                  },
-                  "title": "Response My Applications Api My Applications Get"
-                }
+                "schema": {}
               }
             }
           },
@@ -263,20 +314,11 @@
         }
       }
     },
-    "/api/mock/company/{inn}": {
+    "/api/my-applications": {
       "get": {
-        "summary": "Mock Company",
-        "operationId": "mock_company_api_mock_company__inn__get",
+        "summary": "My Applications",
+        "operationId": "my_applications_api_my_applications_get",
         "parameters": [
-          {
-            "name": "inn",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Inn"
-            }
-          },
           {
             "name": "authorization",
             "in": "header",
@@ -299,7 +341,13 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ListItem"
+                  },
+                  "title": "Response My Applications Api My Applications Get"
+                }
               }
             }
           },
@@ -309,54 +357,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/health": {
-      "get": {
-        "summary": "Health",
-        "description": "Liveness: the process answers. Whether it can serve requests is /api/ready.",
-        "operationId": "health_api_health_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Health"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/ready": {
-      "get": {
-        "summary": "Ready",
-        "description": "Readiness: the database answers and its schema is current; 503 otherwise.",
-        "operationId": "ready_api_ready_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Readiness"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "База недоступна или схема не обновлена",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Readiness"
                 }
               }
             }
@@ -470,72 +470,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Application"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/analytics": {
-      "get": {
-        "summary": "Analytics",
-        "operationId": "analytics_api_analytics_get",
-        "parameters": [
-          {
-            "name": "days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "maximum": 3650,
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Когорта: заявки, поданные за последние N дней",
-              "title": "Days"
-            },
-            "description": "Когорта: заявки, поданные за последние N дней"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Analytics"
                 }
               }
             }
@@ -1151,6 +1085,72 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Application"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analytics": {
+      "get": {
+        "summary": "Analytics",
+        "operationId": "analytics_api_analytics_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 3650,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Когорта: заявки, поданные за последние N дней",
+              "title": "Days"
+            },
+            "description": "Когорта: заявки, поданные за последние N дней"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Analytics"
                 }
               }
             }

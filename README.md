@@ -62,7 +62,11 @@ docker compose up --build
 
 ## Структура
 
-- `app/main.py` — FastAPI, SQLite или Postgres, миграции, валидированные команды с проверкой версии, правила и история событий.
+- `app/main.py` — сборка FastAPI-приложения: журнал запросов, формат ошибок, статика, подключение обработчиков; `python -m app.main migrate`.
+- `app/settings.py` — настройки из переменных окружения; `app/storage.py` — Postgres или SQLite, миграции, журнал событий.
+- `app/policy.py` — правила скоринга demo-rules-v1; `app/schedules.py` — платёж, график погашения, сезонный сценарий.
+- `app/workflow.py` — состояние заявки, переходы с проверкой версии, выданные предложения; `app/schemas.py` — модели API.
+- `app/handlers/` — HTTP-обработчики: заявки, аналитика, расчёты, вход и проверки; `app/demo.py` — демо-сценарии.
 - `app/static/index.html` и `app/static/app.js` — интерфейс двух ролей.
 - `docs/architecture.md` — архитектура, границы, data model, state machine, API, тест-кейсы.
 - `docs/openapi.json` — выгружаемая спецификация OpenAPI (также доступна `/openapi.json`).

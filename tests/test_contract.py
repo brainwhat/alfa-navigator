@@ -1,7 +1,8 @@
 """Errors, readiness, migrations and the published API contract."""
 import json
 from pathlib import Path
-import app.main as m
+from app import settings, storage
+from app.main import app
 from conftest import client, CLIENT, BANK, payload
 
 def test_login_with_cyrillic_password_is_401():
@@ -24,18 +25,18 @@ def test_errors_carry_request_id():
 
 def test_readiness(monkeypatch):
     r=client.get('/api/ready')
-    assert r.status_code==200 and r.json()['schema_version']==m.SCHEMA_VERSION
-    if m.DATABASE_URL:
-        monkeypatch.setattr(m,'DATABASE_URL','postgresql://nobody@127.0.0.1:1/none')
+    assert r.status_code==200 and r.json()['schema_version']==storage.SCHEMA_VERSION
+    if settings.DATABASE_URL:
+        monkeypatch.setattr(settings,'DATABASE_URL','postgresql://nobody@127.0.0.1:1/none')
     else:
-        monkeypatch.setattr(m,'DB',Path('/nonexistent-dir/navigator.db'))
+        monkeypatch.setattr(settings,'DB',Path('/nonexistent-dir/navigator.db'))
     r=client.get('/api/ready')
     assert r.status_code==503 and r.json()['status']=='unavailable'
     assert client.get('/api/health').status_code==200
 
 def test_migrations_are_repeatable():
-    m.migrate()
-    assert client.get('/api/ready').json()['schema_version']==m.SCHEMA_VERSION
+    storage.migrate()
+    assert client.get('/api/ready').json()['schema_version']==storage.SCHEMA_VERSION
 
 def test_static_cache_headers():
     page=client.get('/')
@@ -46,10 +47,10 @@ def test_static_cache_headers():
 
 def test_openapi_snapshot_is_current():
     snapshot=json.loads((Path(__file__).parent.parent/'docs'/'openapi.json').read_text(encoding='utf-8'))
-    assert snapshot==m.app.openapi(), 'docs/openapi.json устарел: python scripts/export_openapi.py'
+    assert snapshot==app.openapi(), 'docs/openapi.json устарел: python scripts/export_openapi.py'
 
 def test_success_responses_have_schemas():
-    spec=m.app.openapi()
+    spec=app.openapi()
     for path in ('/api/applications/{id}/evaluate','/api/applications/{id}/accept','/api/precheck','/api/schedule','/api/analytics'):
         operation=next(iter(spec['paths'][path].values()))
         assert operation['responses']['200']['content']['application/json']['schema']

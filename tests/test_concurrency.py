@@ -2,7 +2,8 @@
 import threading
 from uuid import uuid4
 from fastapi.testclient import TestClient
-import app.main as m
+from app import settings, workflow
+from app.main import app
 from conftest import client, CLIENT, BANK, create, evaluate
 
 def race(monkeypatch, *calls):
@@ -13,7 +14,7 @@ def race(monkeypatch, *calls):
     barrier=threading.Barrier(len(calls),timeout=1)
     lock=threading.Lock()
     reads=[0]
-    original=m.get_row
+    original=workflow.get_row
     def paused(c,id):
         row=original(c,id)
         with lock:
@@ -23,14 +24,14 @@ def race(monkeypatch, *calls):
             try: barrier.wait()
             except threading.BrokenBarrierError: pass
         return row
-    monkeypatch.setattr(m,'get_row',paused)
+    monkeypatch.setattr(workflow,'get_row',paused)
     results=[None]*len(calls)
     def run(i,call):
-        results[i]=call(TestClient(m.app))
+        results[i]=call(TestClient(app))
     threads=[threading.Thread(target=run,args=(i,call)) for i,call in enumerate(calls)]
     for t in threads: t.start()
     for t in threads: t.join(30)
-    monkeypatch.setattr(m,'get_row',original)
+    monkeypatch.setattr(workflow,'get_row',original)
     return [r.status_code for r in results]
 
 def history(id):
@@ -63,10 +64,10 @@ def test_evaluate_against_request_info(monkeypatch):
     assert len({'evaluated','requested_info'}&set(history(id)))==1
 
 def test_extend_against_expiry(monkeypatch):
-    monkeypatch.setattr(m,'OFFER_VALID_DAYS',-1)
+    monkeypatch.setattr(settings,'OFFER_VALID_DAYS',-1)
     a=create()
     assert evaluate(a['id'])['status']=='expired'
-    monkeypatch.setattr(m,'OFFER_VALID_DAYS',7)
+    monkeypatch.setattr(settings,'OFFER_VALID_DAYS',7)
     extend=lambda c:c.post('/api/applications/'+a['id']+'/extend',headers=BANK)
     codes=race(monkeypatch,extend,extend)
     # a repeated extension of an open offer is allowed, so both may succeed when they run one after another;

@@ -101,29 +101,29 @@ def test_offers_carry_overpayment():
     offers={o['id']:o for o in d['explanation']['offers']}
     assert offers['term']['overpayment']>d['explanation']['requested']['overpayment']>offers['amount']['overpayment']
 def test_queue_sla(monkeypatch):
-    import app.main as m
+    from app import settings
     a=create()
     item=next(x for x in client.get('/api/applications',headers=BANK).json() if x['id']==a['id'])
     assert item['waiting_on']=='bank' and not item['sla_breached'] and item['sla_due_at']
-    monkeypatch.setattr(m,'BANK_SLA_HOURS',-1)
+    monkeypatch.setattr(settings,'BANK_SLA_HOURS',-1)
     item=next(x for x in client.get('/api/applications',headers=BANK).json() if x['id']==a['id'])
     assert item['sla_breached']
     client.post('/api/applications/'+a['id']+'/request-info',json={'reason':'Уточните финансы'},headers=BANK)
     item=next(x for x in client.get('/api/applications',headers=BANK).json() if x['id']==a['id'])
     assert item['waiting_on']=='client' and not item['sla_breached'] and item['sla_due_at'] is None
 def test_risk_based_rate():
-    import app.main as m
-    assert [m.rate_for(s) for s in (85,70,65,50)]==[0.18,0.20,0.22,0.26]
+    from app import policy, schedules
+    assert [policy.rate_for(s) for s in (85,70,65,50)]==[0.18,0.20,0.22,0.26]
     best=evaluate(create()['id'])
     assert best['score']==85 and best['explanation']['offer']['annual_rate']==0.18
-    assert best['explanation']['offer']['monthly_payment']==m.payment(1_000_000,36,0.18)
-    assert best['explanation']['assessment']['reference_rate']==0.22 and best['explanation']['assessment']['monthly_payment']==m.payment(1_000_000,36)
+    assert best['explanation']['offer']['monthly_payment']==schedules.payment(1_000_000,36,0.18)
+    assert best['explanation']['assessment']['reference_rate']==0.22 and best['explanation']['assessment']['monthly_payment']==schedules.payment(1_000_000,36,policy.RATE)
     weaker=evaluate(create(amount=5_000_000,months=60,revenue=1_000_000,available_cashflow=250_000)['id'])
     assert weaker['score']==70 and weaker['explanation']['offer']['annual_rate']==0.20
     r=client.post('/api/applications/'+best['id']+'/accept',headers=CLIENT).json()
     assert r['explanation']['accepted_terms']['annual_rate']==0.18
     s=client.post('/api/schedule',json={'amount':1_000_000,'months':36,'annual_rate':0.18},headers=CLIENT).json()
-    assert s['monthly_payment']==m.payment(1_000_000,36,0.18) and s['annual_rate']==0.18
+    assert s['monthly_payment']==schedules.payment(1_000_000,36,0.18) and s['annual_rate']==0.18
 def test_manual_approval_priced_at_top_rate():
     a=create(overdue=True)
     evaluate(a['id'])
@@ -131,17 +131,17 @@ def test_manual_approval_priced_at_top_rate():
     r=client.post('/api/applications/'+a['id']+'/accept',headers=CLIENT).json()
     assert r['explanation']['accepted_terms']['annual_rate']==0.26
 def test_offer_expiry_and_extension(monkeypatch):
-    import app.main as m
+    from app import settings
     d=evaluate(create()['id'])
     assert d['status']=='approved' and d['offer_expires_at']>d['updated_at']
-    monkeypatch.setattr(m,'OFFER_VALID_DAYS',-1)
+    monkeypatch.setattr(settings,'OFFER_VALID_DAYS',-1)
     a=create()
     d=evaluate(a['id'])
     assert d['status']=='expired' and d['events'][-1]['actor']=='system'
     assert sum(e['action']=='expired' for e in client.get('/api/applications/'+a['id'],headers=BANK).json()['events'])==1
     assert client.post('/api/applications/'+a['id']+'/accept',headers=CLIENT).status_code==409
     assert client.post('/api/applications/'+a['id']+'/extend',headers=CLIENT).status_code==403
-    monkeypatch.setattr(m,'OFFER_VALID_DAYS',7)
+    monkeypatch.setattr(settings,'OFFER_VALID_DAYS',7)
     r=client.post('/api/applications/'+a['id']+'/extend',headers=BANK).json()
     assert r['status']=='approved' and r['events'][-1]['action']=='extended'
     assert client.post('/api/applications/'+a['id']+'/accept',headers=CLIENT).json()['status']=='accepted'
@@ -195,11 +195,11 @@ def test_prepayment():
     assert full['months']==3 and full['rows'][-1]['balance']==0
     assert client.post('/api/schedule',json={**base,'prepay_month':24,'prepay_amount':1000},headers=CLIENT).status_code==422
 def test_demo_seed():
-    import app.main as m
+    from app import demo
     from datetime import datetime, timezone
     assert client.post('/api/demo/seed',headers=CLIENT).status_code==403
     real=create(company='ООО Настоящая заявка')
-    assert client.post('/api/demo/seed',headers=BANK).json()['created']==len(m.DEMO_SCENARIOS)
+    assert client.post('/api/demo/seed',headers=BANK).json()['created']==len(demo.DEMO_SCENARIOS)
     items=client.get('/api/applications',headers=BANK).json()
     demo=[x for x in items if x['id'].startswith('DEMO')]
     statuses={x['status'] for x in demo}

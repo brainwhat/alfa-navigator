@@ -58,6 +58,27 @@ jobs:
         if: failure()
         run: cat "$RUNNER_TEMP/uvicorn.log"
 
+  e2e:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: python -m pip install -r requirements-e2e.txt
+      - run: python -m playwright install --with-deps chromium
+      - run: python -m pytest e2e -q --screenshot only-on-failure --tracing retain-on-failure --output e2e-results
+      - name: Screenshots and traces of failed tests
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: e2e-results
+          retention-days: 7
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest
@@ -72,7 +93,7 @@ jobs:
 
   deploy:
     name: Deploy to Vercel
-    needs: [test, audit]
+    needs: [test, e2e, audit]
     # Fork PRs get no secrets, so they are only tested.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest

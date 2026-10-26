@@ -25,8 +25,9 @@ docker compose up --build
 Пайплайн [.github/workflows/ci.yml](.github/workflows/ci.yml):
 
 1. **test** (SQLite и Postgres): pytest, проверка снимка `docs/openapi.json`, затем приложение запускается на runner'е и проходит smoke-тест [scripts/smoke.py](scripts/smoke.py) с полным сценарием (вход → заявка с повтором по `Idempotency-Key` → скоринг → принятие сохранённого предложения).
-2. **audit**: `pip-audit` по полностью зафиксированному `requirements.txt`; известная уязвимость останавливает деплой.
-3. **deploy** (после test и audit): `vercel pull` → `vercel build` → `vercel deploy --prebuilt`, затем smoke-проверка задеплоенного URL. Push в `main` выкатывает production, PR из этого репозитория выкатывает preview. На production smoke только читает: `/api/ready`, вход и чтение очереди из базы. Полный сценарий с записью идёт на preview, когда у preview своя база (переменная репозитория `PREVIEW_DATABASE_ISOLATED=true`). Ручной запуск: Actions → CI/CD → Run workflow.
+2. **e2e**: браузерные тесты на Playwright (Chromium) против запущенного приложения: основной сценарий клиент → банк → клиент, поздний ответ по прежней заявке не подменяет карточку, двойной клик по «Подать заявку» создаёт одну заявку, команда из устаревшей карточки получает 409 и карточка обновляется. При падении скриншоты и трассировки сохраняются в артефакт `e2e-results`.
+3. **audit**: `pip-audit` по полностью зафиксированному `requirements.txt`; известная уязвимость останавливает деплой.
+4. **deploy** (после test, e2e и audit): `vercel pull` → `vercel build` → `vercel deploy --prebuilt`, затем smoke-проверка задеплоенного URL. Push в `main` выкатывает production, PR из этого репозитория выкатывает preview. На production smoke только читает: `/api/ready`, вход и чтение очереди из базы. Полный сценарий с записью идёт на preview, когда у preview своя база (переменная репозитория `PREVIEW_DATABASE_ISOLATED=true`). Ручной запуск: Actions → CI/CD → Run workflow.
 
 Разовая настройка:
 
@@ -76,7 +77,7 @@ docker compose up --build
 - Скоринг — детерминированные правила `demo-rules-v1`; система не претендует на оценку реального кредитного риска.
 - Реестр компании, бюро кредитных историй, подписание договора и выдача денежных средств **не подключены**; данные клиент вводит самостоятельно, просрочки — синтетический флаг.
 - Есть **только демонстрационное** разделение ролей по статическим токенам. Это не промышленная идентификация или полноценный аудит. **Никогда не вводите реальные ПДн.** Подробности в `docs/limitations.md`.
-- В следующей итерации: авторизация пользователей и компаний, отдельная таблица политик, пагинация очереди и агрегаты в базе, rate limiting, браузерные тесты в CI.
+- В следующей итерации: авторизация пользователей и компаний, отдельная таблица политик, пагинация очереди и агрегаты в базе, rate limiting.
 
 ## Для жюри
 
@@ -88,6 +89,11 @@ docker compose up --build
 python -m pip install -r requirements-dev.txt
 python -m pytest -q
 python scripts/export_openapi.py   # обновить docs/openapi.json после изменения API
+
+# браузерные тесты
+python -m pip install -r requirements-e2e.txt
+python -m playwright install chromium
+python -m pytest e2e
 ```
 
 Обновление зависимостей: правьте `requirements.in`, затем `uv pip compile requirements.in --python-version 3.12 --no-header -o requirements.txt` и проверьте `pip-audit --no-deps -r requirements.txt`.

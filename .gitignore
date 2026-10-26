@@ -9,3 +9,6 @@ __pycache__/
 .claude/
 .vercel
 .env*
+
+e2e-results/
+test-results/

@@ -1,0 +1,4 @@
+# Браузерные тесты (e2e/); браузер ставится отдельно: python -m playwright install chromium
+-r requirements-dev.txt
+playwright==1.63.0
+pytest-playwright==0.9.0

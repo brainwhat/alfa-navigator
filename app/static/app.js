@@ -386,6 +386,9 @@ async function pick(id, announce = true) {
 function shareSelection(id) {
   if (pane) parent.postMessage({type: 'nav:select', id}, location.origin);
 }
+// Тур по демо на /split читает состояние окна отсюда, а не из разметки
+if (pane) window.navState = () => ({authed: !!authToken, ids: records.map(r => r.id),
+  current: current && {id: current.id, status: current.status}});
 addEventListener('message', async e => {
   if (!pane || e.origin !== location.origin || e.data?.type !== 'nav:select' || !authToken) return;
   const id = e.data.id;

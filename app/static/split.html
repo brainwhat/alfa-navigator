@@ -7,24 +7,25 @@
 :root{
   --font-text:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Helvetica,sans-serif;
   --font-display:'Styrene UI',Onest,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
-  --accent:#ef3124;--page:#f2f3f5;--surface:#fff;--raised:#fff;
+  --accent:#ef3124;--accent-hover:#de2a1e;--on-accent:#fff;--page:#f2f3f5;--surface:#fff;--raised:#fff;
   --t1:rgba(3,3,6,.88);--t2:rgba(4,4,19,.55);--t3:rgba(5,8,29,.38);
-  --tint:rgba(38,55,88,.06);--line:rgba(30,43,68,.08);--pos-g:#0cc44d;
+  --tint:rgba(38,55,88,.06);--tint-2:rgba(30,43,68,.1);--line:rgba(30,43,68,.08);--pos:#0d9336;--pos-g:#0cc44d;
   --shadow-xs:0 4px 8px rgba(0,0,0,.04),0 0 1px rgba(0,0,0,.04);
+  --shadow-m:0 20px 24px rgba(0,0,0,.08),0 12px 16px rgba(0,0,0,.04),0 4px 8px rgba(0,0,0,.04),0 0 1px rgba(0,0,0,.04);
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root{
-  --accent:#f83a2a;--page:#121213;--surface:#1c1c1e;--raised:#29292c;
+  --accent:#f83a2a;--accent-hover:#ff4e3f;--page:#121213;--surface:#1c1c1e;--raised:#29292c;
   --t1:rgba(255,255,255,.94);--t2:rgba(238,238,251,.55);--t3:rgba(233,233,250,.37);
-  --tint:rgba(214,214,229,.07);--line:rgba(225,225,248,.09);
-  --shadow-xs:0 0 0 1px rgba(255,255,255,.04);
+  --tint:rgba(214,214,229,.07);--tint-2:rgba(225,225,248,.12);--line:rgba(225,225,248,.09);--pos:#0cc44d;
+  --shadow-xs:0 0 0 1px rgba(255,255,255,.04);--shadow-m:0 20px 40px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.06);
   color-scheme:dark;
 }}
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;font:15px/1.5 var(--font-text);color:var(--t1);background:var(--page);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow:hidden}
 .ph{font-family:Phosphor!important;font-style:normal;font-weight:normal;line-height:1;speak:never;display:inline-block}
-.ph-storefront:before{content:"\e470"}.ph-bank:before{content:"\e0b4"}.ph-arrow-left:before{content:"\e058"}.ph-broadcast:before{content:"\e0f2"}
+.ph-storefront:before{content:"\e470"}.ph-bank:before{content:"\e0b4"}.ph-arrow-left:before{content:"\e058"}.ph-broadcast:before{content:"\e0f2"}.ph-play:before{content:"\e3d0"}.ph-x:before{content:"\e4f6"}
 header{display:flex;align-items:center;gap:16px;height:56px;padding:0 16px;border-bottom:1px solid var(--line);flex:none}
 .brand{display:flex;align-items:center;gap:10px}
 .logo{width:30px;height:30px;border-radius:9px;background:var(--accent);color:#fff;display:grid;place-items:center;font:600 18px/1 var(--font-display);position:relative}
@@ -32,7 +33,8 @@ header{display:flex;align-items:center;gap:16px;height:56px;padding:0 16px;borde
 .logo span{transform:translateY(-2px)}
 h1{font:600 17px/1 var(--font-display);margin:0;white-space:nowrap}
 h1 b{color:var(--accent);font-weight:600}
-.note{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--t2);margin-right:auto;min-width:0}
+.note{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--t2);margin-right:auto;min-width:0;white-space:nowrap;overflow:hidden}
+.note span{overflow:hidden;text-overflow:ellipsis}
 .note i{color:var(--pos-g);font-size:16px}
 a.back{display:inline-flex;align-items:center;gap:6px;font:500 14px/1 var(--font-text);color:var(--t2);text-decoration:none;padding:10px 12px;border-radius:12px;white-space:nowrap}
 a.back:hover{background:var(--tint);color:var(--t1)}
@@ -45,8 +47,40 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:1px;back
 .pane h2{display:flex;align-items:center;gap:8px;margin:0;padding:10px 16px;font:600 14px/1 var(--font-display);color:var(--t2);border-bottom:1px solid var(--line)}
 .pane h2 i{font-size:18px;color:var(--t1)}
 iframe{flex:1;width:100%;border:0;background:var(--page)}
+/* Тур по демо: карточка поверх окна, которое сейчас не подсвечено, и кольцо вокруг нужного элемента */
+button.tourbtn{font:500 14px/1 var(--font-text);min-height:36px;padding:0 14px;border:0;border-radius:12px;background:var(--accent);color:var(--on-accent);display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
+button.tourbtn:hover{background:var(--accent-hover)}
+.tour{position:fixed;z-index:30;top:104px;left:50%;transform:translateX(-50%);width:min(380px,calc(50vw - 32px));background:var(--surface);border-radius:20px;box-shadow:var(--shadow-m);padding:18px 20px 20px}
+.tour.left,.tour.right{transform:none}
+.tour.left{left:16px}
+.tour.right{left:auto;right:16px}
+.tour-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.tour-top small{font-size:12.5px;color:var(--t2)}
+.tour-dots{display:flex;gap:4px;margin-right:auto}
+.tour-dots span{width:16px;height:4px;border-radius:2px;background:var(--tint-2)}
+.tour-dots span.done{background:var(--pos-g)}
+.tour-dots span.on{background:var(--accent)}
+.tour h2{font:600 17px/1.3 var(--font-display);margin:0 0 6px}
+.tour p{margin:0;font-size:14px;line-height:1.45;color:var(--t1)}
+.tour .tour-wait{margin-top:10px;font-size:13px;color:var(--t2)}
+.tour .tour-wait.ok{color:var(--pos)}
+.tour .tour-wait:empty{display:none}
+.tour-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.tour-actions button{font:500 14px/1 var(--font-text);min-height:40px;padding:0 16px;border:0;border-radius:12px;cursor:pointer;background:var(--accent);color:var(--on-accent)}
+.tour-actions button.secondary{background:var(--tint);color:var(--t1)}
+.tour-actions button:disabled{opacity:.4;cursor:default}
+button.tour-x{border:0;background:transparent;color:var(--t2);width:32px;height:32px;border-radius:10px;display:grid;place-items:center;cursor:pointer;font-size:18px;padding:0}
+button.tour-x:hover{background:var(--tint);color:var(--t1)}
+.tour button:focus-visible,button.tourbtn:focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 40%,transparent);outline-offset:1px}
+.tour-spot{position:fixed;z-index:25;pointer-events:none;border-radius:14px;box-shadow:0 0 0 3px var(--accent),0 0 0 8px color-mix(in srgb,var(--accent) 22%,transparent);transition:top .2s,left .2s,width .2s,height .2s}
+@media (prefers-reduced-motion:no-preference){.tour-spot{animation:pulse 1.6s ease-in-out infinite}}
+@keyframes pulse{50%{box-shadow:0 0 0 3px var(--accent),0 0 0 12px color-mix(in srgb,var(--accent) 10%,transparent)}}
+.hidden{display:none!important}
+.short{display:none}
+@media (max-width:640px){header{gap:8px}.long,a.back span{display:none}.short{display:inline}}
 @media (max-width:900px){
   .note{display:none}
+  .tour,.tour.left,.tour.right{top:auto;bottom:16px;left:16px;right:16px;width:auto;transform:none}
   h1{margin-right:auto}
   .seg{display:flex}
   main{grid-template-columns:1fr;gap:0}
@@ -55,13 +89,18 @@ iframe{flex:1;width:100%;border:0;background:var(--page)}
 }
 </style></head><body>
 <header><div class="brand"><div class="logo" aria-hidden="true"><span>А</span></div><h1><b>Альфа.</b>Навигатор</h1></div>
-<span class="note"><i class="ph ph-broadcast" aria-hidden="true"></i>Два экрана: действия одной стороны сразу видны другой, выбор заявки общий</span>
-<a class="back" href="/"><i class="ph ph-arrow-left" aria-hidden="true"></i>Один экран</a></header>
+<span class="note"><i class="ph ph-broadcast" aria-hidden="true"></i><span>Два экрана: действия одной стороны сразу видны другой, выбор заявки общий</span></span>
+<button id="tourStart" class="tourbtn" type="button"><i class="ph ph-play" aria-hidden="true"></i><span class="long">Показать сценарий</span><span class="short">Тур</span></button><a class="back" href="/" aria-label="Один экран"><i class="ph ph-arrow-left" aria-hidden="true"></i><span>Один экран</span></a></header>
 <div class="seg" role="tablist" aria-label="Экран"><button id="clientPaneTab" class="active" role="tab" aria-selected="true" aria-controls="clientPane" onclick="show('client')"><i class="ph ph-storefront"></i>Предприниматель</button><button id="bankPaneTab" role="tab" aria-selected="false" aria-controls="bankPane" tabindex="-1" onclick="show('bank')"><i class="ph ph-bank"></i>Банк</button></div>
 <main>
-<section id="clientPane" class="pane on" role="tabpanel" aria-labelledby="clientPaneTab"><h2><i class="ph ph-storefront" aria-hidden="true"></i>Кабинет предпринимателя</h2><iframe src="/?pane=client" title="Кабинет предпринимателя"></iframe></section>
-<section id="bankPane" class="pane" role="tabpanel" aria-labelledby="bankPaneTab"><h2><i class="ph ph-bank" aria-hidden="true"></i>Кабинет банка</h2><iframe src="/?pane=bank" title="Кабинет банка"></iframe></section>
+<section id="clientPane" class="pane on" role="tabpanel" aria-labelledby="clientPaneTab"><h2><i class="ph ph-storefront" aria-hidden="true"></i>Кабинет предпринимателя</h2><iframe data-role="client" src="/?pane=client" title="Кабинет предпринимателя"></iframe></section>
+<section id="bankPane" class="pane" role="tabpanel" aria-labelledby="bankPaneTab"><h2><i class="ph ph-bank" aria-hidden="true"></i>Кабинет банка</h2><iframe data-role="bank" src="/?pane=bank" title="Кабинет банка"></iframe></section>
 </main>
+<div id="tour" class="tour hidden" role="dialog" aria-label="Тур по демо">
+<div class="tour-top"><div id="tourDots" class="tour-dots" aria-hidden="true"></div><small id="tourCount"></small><button id="tourClose" class="tour-x" type="button" aria-label="Закрыть тур"><i class="ph ph-x" aria-hidden="true"></i></button></div>
+<div aria-live="polite"><h2 id="tourTitle"></h2><p id="tourText"></p></div><p id="tourWait" class="tour-wait"></p>
+<div class="tour-actions"><button id="tourAct" class="secondary hidden" type="button"></button><button id="tourNext" type="button">Далее</button></div></div>
+<div id="tourSpot" class="tour-spot hidden"></div>
 <script>
 'use strict';
 // На узком экране окна переключаются вкладками, на широком видны оба
@@ -80,4 +119,5 @@ addEventListener('message', e => {
   if (e.origin !== location.origin || e.data?.type !== 'nav:select') return;
   for (const f of frames) if (f.contentWindow !== e.source) f.contentWindow.postMessage(e.data, location.origin);
 });
-</script></body></html>
+</script>
+<script src="/static/tour.js?v=__ASSET_VERSION__"></script></body></html>

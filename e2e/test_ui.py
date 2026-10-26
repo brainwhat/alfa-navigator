@@ -133,3 +133,24 @@ def test_split_screen_live_updates(page: Page):
     # the client screen has no other trigger within the 5 s expect timeout: background polling is every 30 s
     expect(client.locator('#clientDetail')).to_contain_text('Банк предлагает другие условия')
     expect(client.locator('.toast', has_text='банк провёл скоринг')).to_be_visible()
+
+def test_demo_tour(page: Page):
+    """The guided tour leads one application from login to accepted terms; the viewer only presses its buttons."""
+    page.goto('/split?tour')
+    tour = page.locator('#tour')
+    step = tour.locator('#tourCount')
+    expect(step).to_have_text('Шаг 1 из 8')
+    expect(page.locator('#tourSpot')).to_be_visible()  # the password field of the first window
+    for name in ('Кабинет предпринимателя', 'Кабинет банка'):
+        pane = page.frame_locator(f'iframe[title="{name}"]')
+        pane.get_by_label('Демо-пароль').fill(PASSWORD)
+        pane.get_by_role('button', name=re.compile('Войти')).click()
+    for n, button in [(2, 'Сделать за меня'), (3, 'Сделать за меня'), (4, 'Далее'), (5, 'Сделать за меня'),
+                      (6, 'Далее'), (7, 'Сделать за меня')]:
+        expect(step).to_have_text(f'Шаг {n} из 8')
+        tour.get_by_role('button', name=button).click()
+    expect(step).to_have_text('Шаг 8 из 8')
+    bank = page.frame_locator('iframe[title="Кабинет банка"]')
+    expect(bank.locator('#bankDetail .pill').first).to_have_text('Условия приняты')
+    tour.get_by_role('button', name='Завершить').click()
+    expect(tour).to_be_hidden()

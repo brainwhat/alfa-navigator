@@ -36,7 +36,7 @@ flowchart LR
 | `app/auth.py` | Демо-токены ролей |
 
 `policy` и `schedules` не знают о базе и HTTP, поэтому правила и расчёты проверяются напрямую. Настройки читаются как `settings.X` в момент вызова, тесты меняют их через `monkeypatch`.
-- `app/static/index.html` — разметка и стили; `app/static/app.js` — клиентская логика; `app/static/split.html` — два окна приложения во фреймах (`/?pane=client`, `/?pane=bank`), пересылает между ними выбор заявки через `postMessage`. Поэтому `X-Frame-Options: SAMEORIGIN`, а не `DENY`. Статика отдаётся с `?v=<хеш содержимого>` и кешируется навсегда; HTML и API — `no-store`.
+- `app/static/index.html` — разметка и стили; `app/static/app.js` — клиентская логика; `app/static/split.html` — два окна приложения во фреймах (`/?pane=client`, `/?pane=bank`), пересылает между ними выбор заявки через `postMessage`; `app/static/tour.js` — тур по демо: читает разметку фреймов и их состояние (`navState`, только в режиме окна) и рисует подсветку поверх. Поэтому `X-Frame-Options: SAMEORIGIN`, а не `DENY`. Статика отдаётся с `?v=<хеш содержимого>` и кешируется навсегда; HTML и API — `no-store`.
 
 ## Состояния заявки
 

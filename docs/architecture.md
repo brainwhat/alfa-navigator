@@ -29,6 +29,8 @@ flowchart LR
 | `app/demo.py` | Синтетические сценарии и `/api/demo/*`; шаги выполняются настоящими обработчиками |
 | `app/workflow.py` | Сервис переходов: чтение с ленивым истечением, `transition` с проверкой версии, выдача предложений, чей ход и SLA |
 | `app/policy.py` | Правила demo-rules-v1: балл, вклад факторов, решение, альтернативы, советы, ставка по баллу |
+| `app/statements.py` | Разбор CSV-выписки, классификация операций, средние и сезонный профиль, подпись сводки, синтетический пример; ничего не сохраняет |
+| `app/handlers/statements.py` | `/api/statement/analyze` и пример выписки |
 | `app/documents.py` | PDF решения по карточке заявки: условия, оценка, график, история; ничего не знает об HTTP |
 | `app/schedules.py` | Аннуитетный платёж, график с досрочным погашением, сезонный сценарий |
 | `app/schemas.py` | Pydantic-модели запросов и ответов, из них строится OpenAPI |
@@ -112,6 +114,8 @@ stateDiagram-v2
 | POST | `/api/applications` | клиент | Создать заявку (`Idempotency-Key`, `previous_id`) |
 | GET | `/api/applications` | банк | Очередь с SLA |
 | GET | `/api/applications/{id}` | любая | Карточка с историей и `version` |
+| POST | `/api/statement/analyze` | клиент | Сводка выписки: средние, помесячно, сезонность, подпись; выписка не сохраняется |
+| GET | `/api/statement/sample.csv` | — | Синтетическая выписка кофейни за 12 месяцев |
 | GET | `/api/applications/{id}/decision.pdf` | любая | Решение в PDF; `409`, пока заявку не оценили |
 | POST | `/api/applications/{id}/request-info` | банк | Запрос уточнения выбранных полей |
 | POST | `/api/applications/{id}/clarify` | клиент | Ответ на уточнение |

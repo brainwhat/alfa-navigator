@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import demo, settings
-from app.handlers import analytics, applications, calculations, live, system
+from app.handlers import analytics, applications, calculations, live, statements, system
 from app.settings import log
 from app.storage import SCHEMA_VERSION, migrate, sql_ms
 
@@ -95,7 +95,7 @@ async def validation_error(request: Request, exc: RequestValidationError):
     return JSONResponse({'detail': 'Проверьте данные. ' + detail, 'errors': errors}, status_code=422)
 
 app.mount('/static', StaticFiles(directory=settings.ROOT / 'static'), name='static')
-for module in (system, calculations, applications, analytics, live, demo):
+for module in (system, calculations, statements, applications, analytics, live, demo):
     app.include_router(module.router)
 
 if settings.MIGRATE_ON_START:

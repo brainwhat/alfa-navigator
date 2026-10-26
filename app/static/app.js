@@ -19,6 +19,7 @@ let resubmitOf = null;  // заявка, вместо которой подаё�
 let createKey = null;   // Idempotency-Key текущей попытки подачи
 let analyticsDays = '';
 let flashIds = new Set();  // заявки, которые только что изменила другая сторона
+let statement = null;     // разобранная выписка: ответ /api/statement/analyze
 
 // Режим двух экранов: страница /split открывает приложение дважды, ?pane= закрепляет роль за окном
 const pane = ['client', 'bank'].find(r => r === new URLSearchParams(location.search).get('pane')) || null;
@@ -30,6 +31,7 @@ const offerName = {amount: 'Меньше сумма', term: 'Дольше сро
 const actorName = {bank: 'Банк', client: 'Клиент', system: 'Система'};
 const roleName = {client: 'предприниматель', bank: 'сотрудник банка'};
 const MONTH_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+const MONTH_NAME = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
 
 function payment(amount, months, rate = BASE_RATE) {
   const r = rate / 12;
@@ -41,6 +43,7 @@ function safe(s) {
 function pct(x) { return (x * 100).toFixed(1).replace('.', ',') + '%'; }
 function rate(t) { return Math.round((t.annual_rate ?? BASE_RATE) * 100) + '%'; }
 function over(t) { return t.overpayment != null ? ` • переплата ${money(t.overpayment)}` : ''; }
+function fmtDay(ymd) { return ymd.split('-').reverse().join('.'); }
 function fmtDate(iso) { return new Date(iso).toLocaleString('ru-RU', {dateStyle: 'short', timeStyle: 'short'}); }
 function ago(min) {
   min = Math.max(0, min);
@@ -562,6 +565,7 @@ function renderDetail(x) {
   h += currentTerms(x);
   h += client ? clientActions(x) : bankActions(x);
   h += `<h3>Запрос клиента</h3><div class="kv">${kv('Сумма', money(x.amount))}${kv('Срок', x.months + ' мес.')}${kv('Выручка в месяц', money(x.revenue))}${kv('Свободный поток в месяц', money(x.available_cashflow))}${kv('Платежи по долгам в месяц', money(x.existing_payments))}${kv('Просрочки', x.overdue ? '<span class="neg">есть</span>' : 'нет')}</div>`;
+  h += statementBlock(x);
   if (x.score != null) h += scoreBlock(x);
   h += `<h3>История событий</h3><div class="timeline">${[...x.events].reverse().map(ev => `<div><strong>${safe(ev.description)}</strong><br><small>${new Date(ev.occurred_at).toLocaleString('ru-RU')} • ${actorName[ev.actor] || ev.actor}</small></div>`).join('')}</div>`;
   if (client) {
@@ -571,6 +575,32 @@ function renderDetail(x) {
     $('bankDetail').className = '';
     $('bankDetail').innerHTML = h;
   }
+}
+
+// Сезонность по выписке: поток каждого календарного месяца относительно среднего
+function seasonChart(se) {
+  const max = Math.max(1, ...se.profile.filter(f => f != null));
+  const bars = se.profile.map((f, i) => {
+    const label = `${MONTH_NAME[i]}: ${f == null ? 'нет в выписке' : pct(f) + ' от среднего потока'}`;
+    const cls = f == null ? 'none' : i + 1 === se.worst_month ? 'worst' : f < 1 ? 'low' : '';
+    return `<span class="${cls}" style="height:${f == null || f <= 0 ? 4 : Math.max(4, f / max * 100)}%" title="${label}" aria-label="${label}" role="img"></span>`;
+  }).join('');
+  const worst = se.worst_month ? `Худший месяц: ${MONTH_NAME[se.worst_month - 1]}, поток на ${se.drop_pct}% ниже среднего.` : '';
+  return `<div><small class="muted">Сезонность: поток по месяцам относительно среднего</small><div class="season">${bars}</div>
+    <div class="season-labels" aria-hidden="true">${MONTH_SHORT.map(m => `<span>${m}</span>`).join('')}</div><small class="muted">${worst}${se.months_covered < 12 ? ` Месяцев в выписке: ${se.months_covered} из 12.` : ''}</small></div>`;
+}
+function statementBlock(x) {
+  const s = x.statement;
+  if (!s) return '<p class="terms-note">Выписка не приложена: финансовые показатели заявлены клиентом.</p>';
+  const all = s.check.every(c => c.confirmed);
+  const rows = s.check.map(c => `<tr><td>${fieldName[c.field].replace(/,.*/, '')}</td><td>${money(c.declared)}</td><td>${money(c.statement)}</td>
+    <td class="${c.confirmed ? 'ok' : 'off'}">${c.confirmed ? 'совпадает' : `${c.diff > 0 ? 'выше' : 'ниже'} на ${pct(Math.abs(c.diff))}`}</td></tr>`).join('');
+  const months = s.monthly.map(m => `<tr><td>${MONTH_SHORT[+m.month.slice(5) - 1]} ${m.month.slice(0, 4)}</td><td>${money(m.revenue)}</td><td>${money(m.expenses)}</td><td>${money(m.debt)}</td><td class="${m.cashflow < 0 ? 'neg' : ''}">${money(m.cashflow)}</td></tr>`).join('');
+  return `<h3>Сверка с выпиской</h3><div class="notice ${all ? '' : 'warnbox'}"><strong>${all ? 'Цифры заявки совпадают с выпиской.' : 'Часть цифр заявки отличается от выписки.'}</strong>
+    Выписка с ${fmtDay(s.period.from)} по ${fmtDay(s.period.to)}: ${s.period.months} мес., ${s.operations} операций. Банк получил только итоговые суммы, операции не сохраняются.</div>
+    <div class="scroll"><table class="cmp"><tr><th>Показатель</th><th>Заявлено</th><th>По выписке</th><th>Сверка</th></tr>${rows}</table></div>
+    ${seasonChart(s.seasonality)}
+    <details class="schedule"><summary>Помесячно по выписке</summary><div><div class="scroll"><table class="cmp"><tr><th>Месяц</th><th>Выручка</th><th>Расходы</th><th>Долги</th><th>Поток</th></tr>${months}</table></div></div></details>`;
 }
 
 // Команды: id и version берутся из показанной карточки, а не из текущего выбора в списке.
@@ -719,10 +749,15 @@ function downloadCsv(el) {
 // Форма заявки и симулятор
 function fill(el) { el.style.setProperty('--p', (el.value - el.min) / (el.max - el.min) * 100 + '%'); }
 function simTerms() {
-  return {amount: +$('amount').value, months: +$('months').value, available_cashflow: +$('cashflow').value, existing_payments: +$('debts').value, seasonality: +$('stressSlider').value};
+  return {amount: +$('amount').value, months: +$('months').value, available_cashflow: +$('cashflow').value, existing_payments: +$('debts').value, seasonality: +$('stressSlider').value,
+    ...(statement ? {profile: statement.summary.seasonality.profile} : {})};
 }
 function simulate() {
   const t = simTerms(), p = payment(t.amount, t.months), load = t.available_cashflow ? (p + t.existing_payments) / t.available_cashflow : 0;
+  const se = statement?.summary.seasonality;
+  $('stressField').classList.toggle('hidden', !!se);
+  $('seasonNote').classList.toggle('hidden', !se);
+  if (se) $('seasonNote').textContent = 'Сезонность из выписки' + (se.worst_month ? `: в худший месяц (${MONTH_NAME[se.worst_month - 1]}) поток на ${se.drop_pct}% ниже среднего.` : '.');
   $('amtLabel').textContent = money(t.amount);
   $('monthLabel').textContent = t.months + ' мес.';
   $('payLabel').textContent = money(p);
@@ -820,6 +855,7 @@ const PRESETS = {
     expect: 'Ожидаемо: отказ автоскоринга из-за просрочек; сотрудник банка может одобрить вручную с обоснованием, ставка 26%.'},
 };
 function preset(name) {
+  clearStatement();  // сценарий заменяет цифры выписки
   const p = PRESETS[name], f = $('loanForm').elements;
   for (const k of ['revenue', 'available_cashflow', 'existing_payments']) f[k].value = p[k];
   f.overdue.checked = p.overdue;
@@ -829,6 +865,7 @@ function preset(name) {
   setTerms(p.amount, p.months);
 }
 function refill() {
+  clearStatement();
   const f = $('loanForm').elements, x = current;
   for (const k of ['company', 'purpose', 'revenue', 'available_cashflow', 'existing_payments']) f[k].value = x[k];
   f.overdue.checked = !!x.overdue;
@@ -841,6 +878,69 @@ function refill() {
 function cancelResubmit() {
   resubmitOf = null;
   $('resubmit').classList.add('hidden');
+}
+
+// Выписка: сервер считает средние и сезонность и подписывает сводку; форма заполняется ею,
+// а заявка несёт сводку как есть, чтобы банк сверил с ней заявленные цифры
+$('statementFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  e.target.value = '';  // тот же файл можно выбрать снова
+  if (!file) return;
+  if (file.size > 3_000_000) return toast('Файл больше 3 МБ: выгрузите выписку за меньший период', 'error');
+  const bytes = await file.arrayBuffer();
+  let text;
+  // выгрузки банков бывают в UTF-8 и в Windows-1251
+  try { text = new TextDecoder('utf-8', {fatal: true}).decode(bytes); } catch (err) { text = new TextDecoder('windows-1251').decode(bytes); }
+  analyzeStatement(text);
+});
+async function sampleStatement() {
+  try {
+    const res = await fetch('/api/statement/sample.csv');
+    if (!res.ok) throw Error(`ошибка ${res.status}`);
+    await analyzeStatement(await res.text());
+  } catch (e) {
+    toast('Не удалось загрузить пример: ' + e.message, 'error');
+  }
+}
+async function analyzeStatement(text) {
+  const box = $('statementResult');
+  box.innerHTML = '<div class="skeleton"><span></span><span></span><span></span></div>';
+  try {
+    statement = await api('/statement/analyze', 'POST', {csv: text}, {timeout: 30000});
+  } catch (e) {
+    statement = null;
+    box.innerHTML = `<div class="notice warnbox">${safe(e.message)}</div>`;
+    return simulate();
+  }
+  const s = statement.summary, f = $('loanForm').elements;
+  f.revenue.value = s.revenue;
+  f.existing_payments.value = s.existing_payments;
+  if (s.available_cashflow > 0) f.available_cashflow.value = s.available_cashflow;
+  for (const k of ['revenue', 'available_cashflow', 'existing_payments']) setFieldError(f[k], '');
+  createKey = null;
+  $('presetNote').classList.add('hidden');
+  renderStatement();
+  simulate();
+  toast(`Выписка за ${s.period.months} мес. разобрана: поля формы заполнены`);
+}
+function renderStatement() {
+  const box = $('statementResult');
+  if (!statement) return void (box.innerHTML = '');
+  const s = statement.summary;
+  const cats = statement.categories.map(c => `<tr><td>${safe(c.name)}</td><td>${c.count}</td><td>${money(c.total)}</td><td><small>${c.examples.map(safe).join('<br>')}</small></td></tr>`).join('');
+  box.innerHTML = `<div class="stmt"><div class="row"><small class="muted">Выписка с ${fmtDay(s.period.from)} по ${fmtDay(s.period.to)}: ${s.period.months} мес. в средних, ${s.operations} операций</small><button type="button" class="ghost sm" onclick="clearStatement()">Убрать</button></div>
+    <div class="stmt-nums">${num('Выручка в месяц', money(s.revenue))}${num('Свободный поток', money(s.available_cashflow))}${num('Платежи по долгам', money(s.existing_payments))}</div>
+    ${seasonChart(s.seasonality)}
+    ${statement.warnings.map(w => `<p class="terms-note warn">${safe(w)}</p>`).join('')}
+    <details class="schedule"><summary>Как распознаны операции</summary><div><div class="scroll"><table class="cmp"><tr><th>Категория</th><th>Операций</th><th>Сумма за период</th><th>Крупнейшие по сумме</th></tr>${cats}</table></div>
+      <p class="terms-note">Свободный поток: выручка минус операционные расходы и налоги. Платежи по кредитам и лизингу считаются отдельно, свои переводы, полученные кредиты и возвраты не считаются ни выручкой, ни расходами.</p></div></details>
+    <small class="muted">Поля формы заполнены по выписке. Если измените их, банк увидит расхождение с выпиской.</small></div>`;
+}
+function clearStatement() {
+  if (!statement) return;
+  statement = null;
+  renderStatement();
+  simulate();
 }
 
 $('loanForm').addEventListener('input', e => {
@@ -865,6 +965,7 @@ $('loanForm').onsubmit = async e => {
   for (const k of ['amount', 'months', 'revenue', 'available_cashflow', 'existing_payments']) body[k] = +body[k];
   body.overdue = f.has('overdue');
   if (resubmitOf) body.previous_id = resubmitOf;
+  if (statement) body.statement = statement.summary;
   // один ключ на попытку: повтор после обрыва связи вернёт ту же заявку, а не создаст вторую
   createKey = createKey || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
   btn.disabled = true;

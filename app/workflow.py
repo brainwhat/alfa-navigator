@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
-from app import settings
+from app import settings, statements
 from app.policy import POLICY_VERSION
 from app.schemas import ApplicationInput
 from app.storage import conn, event, now, utcnow
@@ -42,6 +42,9 @@ def enriched(c, id):
         e['data'] = json.loads(e['data']) if e['data'] else None
     if row['explanation']: row['explanation'] = json.loads(row['explanation'])
     if row.get('info_request'): row['info_request'] = json.loads(row['info_request'])
+    if row.get('statement'):
+        row['statement'] = json.loads(row['statement'])
+        row['statement']['check'] = statements.check(row, row['statement'])
     row['waiting_on'] = WAITING_ON.get(row['status'])
     return row
 
@@ -94,14 +97,17 @@ def insert_application(payload:ApplicationInput, id:str, key:str|None=None):
         if payload.previous_id and not c.execute('SELECT 1 FROM applications WHERE id=?', (payload.previous_id,)).fetchone():
             raise HTTPException(422, 'Предыдущая заявка не найдена')
         # a NULL key never conflicts, so only requests that carry a key are deduplicated
-        inserted = c.execute('''INSERT INTO applications (id,created_at,updated_at,company,purpose,amount,months,available_cashflow,revenue,existing_payments,overdue,status,idempotency_key,previous_id)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (idempotency_key) DO NOTHING''',
-          (id,time_,time_,payload.company,payload.purpose,payload.amount,payload.months,payload.available_cashflow,payload.revenue,payload.existing_payments,int(payload.overdue),'submitted',key,payload.previous_id)).rowcount
+        statement = payload.statement and json.dumps(statements.verified(payload.statement.model_dump(by_alias=True)), ensure_ascii=False)
+        inserted = c.execute('''INSERT INTO applications (id,created_at,updated_at,company,purpose,amount,months,available_cashflow,revenue,existing_payments,overdue,status,idempotency_key,previous_id,statement)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (idempotency_key) DO NOTHING''',
+          (id,time_,time_,payload.company,payload.purpose,payload.amount,payload.months,payload.available_cashflow,payload.revenue,payload.existing_payments,int(payload.overdue),'submitted',key,payload.previous_id,statement)).rowcount
         if not inserted:
             existing = dict(c.execute('SELECT * FROM applications WHERE idempotency_key=?', (key,)).fetchone())
             if any(existing[f] != v for f, v in payload.model_dump(include={'company','purpose','amount','months'}).items()):
                 raise HTTPException(422, 'Этот Idempotency-Key уже использован для другой заявки')
             return enriched(c, existing['id']) | {'replayed': True}
         resubmission = f' повторно, вместо заявки № {payload.previous_id}' if payload.previous_id else ''
-        event(c,id,'client','submitted',f'Клиент отправил заявку{resubmission}', {'previous_id':payload.previous_id} if payload.previous_id else None)
+        source = f" с выпиской за {payload.statement.period.months} мес." if payload.statement else ''
+        data = {k: v for k, v in (('previous_id', payload.previous_id), ('statement', bool(payload.statement) or None)) if v}
+        event(c,id,'client','submitted',f'Клиент отправил заявку{source}{resubmission}', data or None)
         return enriched(c,id)

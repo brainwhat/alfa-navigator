@@ -160,3 +160,26 @@ def test_demo_tour(page: Page):
     expect(bank.locator('#bankDetail .pill').first).to_have_text('Условия приняты')
     tour.get_by_role('button', name='Завершить').click()
     expect(tour).to_be_hidden()
+
+def test_statement_import(page: Page):
+    """A statement fills the form and the simulator's seasons; the bank sees the figures reconciled with it."""
+    company = f'ООО Выписка {uuid4().hex[:6]}'
+    page.goto('/')
+    login(page, 'client')
+    page.get_by_role('button', name='Пример: выписка кофейни').click()
+    result = page.locator('#statementResult')
+    expect(result).to_contain_text('12 мес. в средних')
+    expect(page.locator('#f_revenue')).not_to_have_value('1600000')
+    expect(page.locator('#seasonNote')).to_contain_text('Сезонность из выписки')
+    expect(page.locator('#stressField')).to_be_hidden()
+    page.get_by_label('Компания', exact=True).fill(company)
+    page.get_by_role('button', name=re.compile('Подать заявку')).click()
+    card = page.locator('#clientDetail')
+    expect(card).to_contain_text(company)
+    expect(card).to_contain_text('Цифры заявки совпадают с выпиской')
+
+    switch(page, 'bank')
+    login(page, 'bank')
+    bank = page.locator('#bankDetail')
+    expect(bank).to_contain_text(company)
+    expect(bank.locator('td.ok')).to_have_count(3)

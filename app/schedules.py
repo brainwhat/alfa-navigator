@@ -32,15 +32,21 @@ def summary(rows):
 
 WINTER = (1, 2, 11, 12)
 
-def seasonal_timeline(rows, cashflow, existing_payments, seasonality, start):
-    """Cash flow left after debt for twelve months from `start` (calendar month of the first payment); winter months drop by `seasonality` percent."""
+def seasonal_timeline(rows, cashflow, existing_payments, seasonality, start, profile=None):
+    """Cash flow left after debt for twelve months from `start` (calendar month of the first payment).
+    Winter months drop by `seasonality` percent; a statement `profile` (each calendar month's flow
+    relative to the average) replaces that scenario with the business's own seasons."""
     seasonal_cash = cashflow * (1 - seasonality / 100)
     timeline = []
     for i in range(12):
         calendar = (start - 1 + i) % 12 + 1
-        # Illustrative stress scenario in winter months, not a cash flow prediction.
-        winter = calendar in WINTER
-        flow = round(seasonal_cash if winter else cashflow)
+        if profile:
+            factor = profile[calendar - 1] if profile[calendar - 1] is not None else 1
+            winter, flow = factor < 1, round(cashflow * factor)
+        else:
+            # Illustrative stress scenario in winter months, not a cash flow prediction.
+            winter = calendar in WINTER
+            flow = round(seasonal_cash if winter else cashflow)
         loan = rows[i]['payment'] if i < len(rows) else 0
         timeline.append({'month':i+1, 'calendar_month':calendar, 'winter':winter, 'cashflow':flow, 'loan_payment':loan,
                          'existing_payments':existing_payments, 'balance_after_debt':flow-loan-existing_payments})

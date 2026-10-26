@@ -114,7 +114,11 @@ def schema_v2(c):
         allowed = ', '.join(f"'{s}'" for s in STATUSES)
         c.execute(f'ALTER TABLE applications ADD CONSTRAINT applications_status_check CHECK (status IN ({allowed})) NOT VALID')
 
-MIGRATIONS = [schema_v1, schema_v2]
+def schema_v3(c):
+    """Statement summary attached to an application: aggregates only, never the operations."""
+    add_columns(c, 'applications', [('statement', 'TEXT')])
+
+MIGRATIONS = [schema_v1, schema_v2, schema_v3]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 def migrate():

@@ -9,6 +9,7 @@ from fpdf.enums import XPos, YPos
 from app import settings
 from app.policy import APPROVE_SCORE, POLICY_VERSION
 from app.schedules import amortization, summary
+from app.statements import MONTHS
 from app.workflow import offered_terms
 
 FONTS = {'': settings.ROOT / 'fonts' / 'Onest-Regular.ttf', 'B': settings.ROOT / 'fonts' / 'Onest-SemiBold.ttf'}
@@ -23,6 +24,7 @@ STATUS = {'submitted': 'На рассмотрении', 'needs_info': 'Нужн�
 AUTO = {'approved': 'одобрение', 'counteroffer': 'другие условия', 'rejected': 'отказ'}
 OFFER = {'amount': 'Меньше сумма', 'term': 'Дольше срок', 'requested': 'Запрошенные условия'}
 ACTOR = {'bank': 'Банк', 'client': 'Клиент', 'system': 'Система'}
+FIGURE = {'revenue': 'Выручка в месяц', 'available_cashflow': 'Свободный поток', 'existing_payments': 'Платежи по долгам'}
 
 def text(s) -> str:
     # the web subsets have no ruble sign, documents write "руб." anyway; a sentence may end right after it
@@ -201,6 +203,24 @@ def decision_pdf(x, at=None) -> bytes:
     pdf.pairs([('Сумма', money(x['amount'])), ('Срок', f"{x['months']} мес."),
                ('Выручка в месяц', money(x['revenue'])), ('Свободный поток', money(x['available_cashflow'])),
                ('Платежи по долгам', money(x['existing_payments'])), ('Просрочки', 'есть' if x['overdue'] else 'нет')])
+
+    st = x.get('statement')
+    if st:
+        p = st['period']
+        day = lambda ymd: '.'.join(reversed(ymd.split('-')))
+        pdf.section('Сверка с выпиской')
+        pdf.para(f"Выписка с {day(p['from'])} по {day(p['to'])}: {p['months']} мес., {st['operations']} операций. "
+                 'Банк получил только итоговые суммы, операции не сохраняются.', size=8.5, color=MUTED)
+        pdf.grid([['Показатель', 'Заявлено', 'По выписке', 'Сверка']]
+                 + [[FIGURE[c['field']], money(c['declared']), money(c['statement']),
+                     'совпадает' if c['confirmed'] else f"{'выше' if c['diff'] > 0 else 'ниже'} на {percent(abs(c['diff']), 1)}"]
+                    for c in st.get('check', [])],
+                 (56, 40, 40, 38), align=('LEFT', 'RIGHT', 'RIGHT', 'RIGHT'))
+        se = st['seasonality']
+        if se.get('worst_month'):
+            pdf.para(f"Сезонность: худший месяц {MONTHS[se['worst_month'] - 1]}, поток на {se['drop_pct']}% ниже среднего.", size=8.5, color=MUTED)
+    else:
+        pdf.para('Выписка не приложена: финансовые показатели заявлены клиентом.', size=8.5, color=MUTED)
 
     a = e.get('assessment')
     if a:

@@ -39,8 +39,10 @@ def simulate(payload: SimulationInput, authorization: str | None = Header(None))
     rows = amortization(payload.amount, payload.months, RATE)
     monthly = rows[0]['payment']
     base = (monthly+payload.existing_payments)/payload.available_cashflow
-    stress = (monthly+payload.existing_payments)/(payload.available_cashflow*(1-payload.seasonality/100))
+    worst = min([f for f in payload.profile or [] if f is not None], default=None)
+    low = worst if worst is not None else 1 - payload.seasonality/100
+    stress = (monthly+payload.existing_payments)/(payload.available_cashflow*low) if low > 0 else 99.0
     start = payload.start_month or utcnow().month % 12 + 1
-    timeline = seasonal_timeline(rows, payload.available_cashflow, payload.existing_payments, payload.seasonality, start)
+    timeline = seasonal_timeline(rows, payload.available_cashflow, payload.existing_payments, payload.seasonality, start, payload.profile)
     return {'annual_rate':RATE, 'monthly_payment':monthly, 'base_load':round(base,4), 'stress_load':round(stress,4), 'start_month':start,
             'timeline':timeline, 'safe_under_stress':stress<=OFFER_LOAD, 'disclaimer':'Условная модель, а не кредитное решение или финансовый прогноз.'}

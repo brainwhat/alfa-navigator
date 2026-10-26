@@ -23,10 +23,68 @@ class LoanTerms(BaseModel):
     existing_payments: int = Field(ge=0, le=1_000_000_000, description='Ежемесячные платежи по действующим кредитам и лизингу')
     overdue: bool = False
 
+class StatementPeriod(BaseModel):
+    from_: str = Field(alias='from', description='Первая операция, ГГГГ-ММ-ДД')
+    to: str = Field(description='Последняя операция, ГГГГ-ММ-ДД')
+    months: int = Field(description='Полных месяцев в средних')
+    model_config = ConfigDict(populate_by_name=True)
+
+class StatementMonth(BaseModel):
+    month: str = Field(description='ГГГГ-ММ')
+    revenue: int
+    expenses: int = Field(description='Операционные расходы и налоги')
+    debt: int = Field(description='Платежи по кредитам и лизингу')
+    cashflow: int = Field(description='Выручка минус операционные расходы')
+
+class Seasonality(BaseModel):
+    profile: list[float | None] = Field(min_length=12, max_length=12, description='Поток каждого календарного месяца (январь первым) к среднему; null — месяца нет в выписке')
+    worst_month: int | None = Field(None, description='Календарный месяц с наименьшим потоком')
+    drop_pct: int = Field(description='На сколько процентов поток худшего месяца ниже среднего')
+    months_covered: int
+
+class StatementFigures(BaseModel):
+    period: StatementPeriod
+    operations: int
+    revenue: int = Field(description='Средняя выручка в месяц')
+    expenses: int
+    available_cashflow: int = Field(description='Средний свободный поток: выручка минус операционные расходы и налоги')
+    existing_payments: int = Field(description='Средние платежи по кредитам и лизингу')
+    monthly: list[StatementMonth]
+    seasonality: Seasonality
+
+class StatementSummary(StatementFigures):
+    signature: str = Field(max_length=64, description='Подпись сервера: заявка примет сводку, только если её не меняли')
+
+class StatementCheck(BaseModel):
+    field: str
+    declared: int = Field(description='Значение в заявке')
+    statement: int = Field(description='Значение по выписке')
+    confirmed: bool = Field(description='Совпадает с выпиской с точностью до 1%')
+    diff: float = Field(description='Отклонение заявленного от выписки, доля')
+
+class StoredStatement(StatementFigures):
+    check: list[StatementCheck] = []
+
+class StatementCategory(BaseModel):
+    id: str
+    name: str
+    total: int
+    count: int
+    examples: list[str] = Field(description='Крупнейшие по сумме назначения платежей; не сохраняются')
+
+class StatementAnalysis(BaseModel):
+    summary: StatementSummary = Field(description='Передайте в поле statement заявки как есть')
+    categories: list[StatementCategory]
+    warnings: list[str]
+
+class StatementInput(BaseModel):
+    csv: str = Field(min_length=10, max_length=3_000_000, description='Текст выписки в CSV; разделитель ; , или табуляция')
+
 class ApplicationInput(LoanTerms):
     company: str = Field(min_length=2, max_length=120)
     purpose: str = Field(min_length=3, max_length=200)
     previous_id: str | None = Field(None, max_length=20, description='Заявка, вместо которой подаётся эта (повторная подача)')
+    statement: StatementSummary | None = Field(None, description='Сводка выписки из /api/statement/analyze; банк сверит с ней заявленные цифры')
 
 CLARIFY_FIELDS = {'available_cashflow':'свободный денежный поток', 'revenue':'месячная выручка',
                   'existing_payments':'платежи по действующим долгам', 'overdue':'наличие просрочек'}
@@ -140,6 +198,7 @@ class Application(BaseModel):
     offer_expires_at: str | None = None
     info_request: InfoRequest | None = None
     previous_id: str | None = None
+    statement: StoredStatement | None = Field(None, description='Сводка выписки и сверка с заявленными цифрами')
     events: list[Event]
 
 class ListItem(BaseModel):
@@ -196,12 +255,14 @@ class SimulationInput(BaseModel):
     available_cashflow: int = Field(gt=0, le=1_000_000_000)
     existing_payments: int = Field(ge=0, le=1_000_000_000)
     seasonality: int = Field(ge=0, le=60, description='Процент сезонного падения свободного потока')
+    profile: list[float | None] | None = Field(None, min_length=12, max_length=12,
+        description='Сезонность по выписке: поток каждого календарного месяца к среднему; заменяет seasonality')
     start_month: int | None = Field(None, ge=1, le=12, description='Календарный месяц первого платежа (1 — январь); по умолчанию следующий месяц')
 
 class SimulationMonth(BaseModel):
     month: int = Field(description='Номер месяца с начала кредита')
     calendar_month: int = Field(description='Календарный месяц, 1 — январь')
-    winter: bool
+    winter: bool = Field(description='Сезонный спад: зима при ручном сценарии, месяц ниже среднего при профиле выписки')
     cashflow: int
     loan_payment: int = Field(description='Платёж по графику; 0 после погашения кредита')
     existing_payments: int

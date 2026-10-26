@@ -314,6 +314,78 @@
         }
       }
     },
+    "/api/statement/analyze": {
+      "post": {
+        "summary": "Analyze Statement",
+        "description": "Average revenue, free cash flow, debt payments and seasonality from a CSV statement.\nThe statement is read in memory and not stored; the signed summary goes into the application.",
+        "operationId": "analyze_statement_api_statement_analyze_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatementInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatementAnalysis"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/statement/sample.csv": {
+      "get": {
+        "summary": "Sample Statement",
+        "description": "A synthetic coffee shop statement: daily card revenue, suppliers, rent, salaries, taxes, a loan and a lease.",
+        "operationId": "sample_statement_api_statement_sample_csv_get",
+        "responses": {
+          "200": {
+            "description": "Синтетическая выписка кофейни за 12 месяцев",
+            "content": {
+              "text/csv": {}
+            }
+          }
+        }
+      }
+    },
     "/api/my-applications": {
       "get": {
         "summary": "My Applications",
@@ -1797,6 +1869,17 @@
             ],
             "title": "Previous Id"
           },
+          "statement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoredStatement"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Сводка выписки и сверка с заявленными цифрами"
+          },
           "events": {
             "items": {
               "$ref": "#/components/schemas/Event"
@@ -1887,6 +1970,17 @@
             ],
             "title": "Previous Id",
             "description": "Заявка, вместо которой подаётся эта (повторная подача)"
+          },
+          "statement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatementSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Сводка выписки из /api/statement/analyze; банк сверит с ней заявленные цифры"
           }
         },
         "type": "object",
@@ -3065,6 +3159,55 @@
         ],
         "title": "ScheduleSummary"
       },
+      "Seasonality": {
+        "properties": {
+          "profile": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "maxItems": 12,
+            "minItems": 12,
+            "title": "Profile",
+            "description": "Поток каждого календарного месяца (январь первым) к среднему; null — месяца нет в выписке"
+          },
+          "worst_month": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worst Month",
+            "description": "Календарный месяц с наименьшим потоком"
+          },
+          "drop_pct": {
+            "type": "integer",
+            "title": "Drop Pct",
+            "description": "На сколько процентов поток худшего месяца ниже среднего"
+          },
+          "months_covered": {
+            "type": "integer",
+            "title": "Months Covered"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile",
+          "drop_pct",
+          "months_covered"
+        ],
+        "title": "Seasonality"
+      },
       "SeedOut": {
         "properties": {
           "created": {
@@ -3111,6 +3254,30 @@
             "title": "Seasonality",
             "description": "Процент сезонного падения свободного потока"
           },
+          "profile": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array",
+                "maxItems": 12,
+                "minItems": 12
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile",
+            "description": "Сезонность по выписке: поток каждого календарного месяца к среднему; заменяет seasonality"
+          },
           "start_month": {
             "anyOf": [
               {
@@ -3150,7 +3317,8 @@
           },
           "winter": {
             "type": "boolean",
-            "title": "Winter"
+            "title": "Winter",
+            "description": "Сезонный спад: зима при ручном сценарии, месяц ниже среднего при профиле выписки"
           },
           "cashflow": {
             "type": "integer",
@@ -3233,6 +3401,307 @@
           "disclaimer"
         ],
         "title": "SimulationOut"
+      },
+      "StatementAnalysis": {
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/StatementSummary",
+            "description": "Передайте в поле statement заявки как есть"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/StatementCategory"
+            },
+            "type": "array",
+            "title": "Categories"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "summary",
+          "categories",
+          "warnings"
+        ],
+        "title": "StatementAnalysis"
+      },
+      "StatementCategory": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "examples": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Examples",
+            "description": "Крупнейшие по сумме назначения платежей; не сохраняются"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "total",
+          "count",
+          "examples"
+        ],
+        "title": "StatementCategory"
+      },
+      "StatementCheck": {
+        "properties": {
+          "field": {
+            "type": "string",
+            "title": "Field"
+          },
+          "declared": {
+            "type": "integer",
+            "title": "Declared",
+            "description": "Значение в заявке"
+          },
+          "statement": {
+            "type": "integer",
+            "title": "Statement",
+            "description": "Значение по выписке"
+          },
+          "confirmed": {
+            "type": "boolean",
+            "title": "Confirmed",
+            "description": "Совпадает с выпиской с точностью до 1%"
+          },
+          "diff": {
+            "type": "number",
+            "title": "Diff",
+            "description": "Отклонение заявленного от выписки, доля"
+          }
+        },
+        "type": "object",
+        "required": [
+          "field",
+          "declared",
+          "statement",
+          "confirmed",
+          "diff"
+        ],
+        "title": "StatementCheck"
+      },
+      "StatementInput": {
+        "properties": {
+          "csv": {
+            "type": "string",
+            "maxLength": 3000000,
+            "minLength": 10,
+            "title": "Csv",
+            "description": "Текст выписки в CSV; разделитель ; , или табуляция"
+          }
+        },
+        "type": "object",
+        "required": [
+          "csv"
+        ],
+        "title": "StatementInput"
+      },
+      "StatementMonth": {
+        "properties": {
+          "month": {
+            "type": "string",
+            "title": "Month",
+            "description": "ГГГГ-ММ"
+          },
+          "revenue": {
+            "type": "integer",
+            "title": "Revenue"
+          },
+          "expenses": {
+            "type": "integer",
+            "title": "Expenses",
+            "description": "Операционные расходы и налоги"
+          },
+          "debt": {
+            "type": "integer",
+            "title": "Debt",
+            "description": "Платежи по кредитам и лизингу"
+          },
+          "cashflow": {
+            "type": "integer",
+            "title": "Cashflow",
+            "description": "Выручка минус операционные расходы"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "revenue",
+          "expenses",
+          "debt",
+          "cashflow"
+        ],
+        "title": "StatementMonth"
+      },
+      "StatementPeriod": {
+        "properties": {
+          "from": {
+            "type": "string",
+            "title": "From",
+            "description": "Первая операция, ГГГГ-ММ-ДД"
+          },
+          "to": {
+            "type": "string",
+            "title": "To",
+            "description": "Последняя операция, ГГГГ-ММ-ДД"
+          },
+          "months": {
+            "type": "integer",
+            "title": "Months",
+            "description": "Полных месяцев в средних"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "months"
+        ],
+        "title": "StatementPeriod"
+      },
+      "StatementSummary": {
+        "properties": {
+          "period": {
+            "$ref": "#/components/schemas/StatementPeriod"
+          },
+          "operations": {
+            "type": "integer",
+            "title": "Operations"
+          },
+          "revenue": {
+            "type": "integer",
+            "title": "Revenue",
+            "description": "Средняя выручка в месяц"
+          },
+          "expenses": {
+            "type": "integer",
+            "title": "Expenses"
+          },
+          "available_cashflow": {
+            "type": "integer",
+            "title": "Available Cashflow",
+            "description": "Средний свободный поток: выручка минус операционные расходы и налоги"
+          },
+          "existing_payments": {
+            "type": "integer",
+            "title": "Existing Payments",
+            "description": "Средние платежи по кредитам и лизингу"
+          },
+          "monthly": {
+            "items": {
+              "$ref": "#/components/schemas/StatementMonth"
+            },
+            "type": "array",
+            "title": "Monthly"
+          },
+          "seasonality": {
+            "$ref": "#/components/schemas/Seasonality"
+          },
+          "signature": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Signature",
+            "description": "Подпись сервера: заявка примет сводку, только если её не меняли"
+          }
+        },
+        "type": "object",
+        "required": [
+          "period",
+          "operations",
+          "revenue",
+          "expenses",
+          "available_cashflow",
+          "existing_payments",
+          "monthly",
+          "seasonality",
+          "signature"
+        ],
+        "title": "StatementSummary"
+      },
+      "StoredStatement": {
+        "properties": {
+          "period": {
+            "$ref": "#/components/schemas/StatementPeriod"
+          },
+          "operations": {
+            "type": "integer",
+            "title": "Operations"
+          },
+          "revenue": {
+            "type": "integer",
+            "title": "Revenue",
+            "description": "Средняя выручка в месяц"
+          },
+          "expenses": {
+            "type": "integer",
+            "title": "Expenses"
+          },
+          "available_cashflow": {
+            "type": "integer",
+            "title": "Available Cashflow",
+            "description": "Средний свободный поток: выручка минус операционные расходы и налоги"
+          },
+          "existing_payments": {
+            "type": "integer",
+            "title": "Existing Payments",
+            "description": "Средние платежи по кредитам и лизингу"
+          },
+          "monthly": {
+            "items": {
+              "$ref": "#/components/schemas/StatementMonth"
+            },
+            "type": "array",
+            "title": "Monthly"
+          },
+          "seasonality": {
+            "$ref": "#/components/schemas/Seasonality"
+          },
+          "check": {
+            "items": {
+              "$ref": "#/components/schemas/StatementCheck"
+            },
+            "type": "array",
+            "title": "Check",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "period",
+          "operations",
+          "revenue",
+          "expenses",
+          "available_cashflow",
+          "existing_payments",
+          "monthly",
+          "seasonality"
+        ],
+        "title": "StoredStatement"
       },
       "Terms": {
         "properties": {

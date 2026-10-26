@@ -5,8 +5,8 @@ Usage: python scripts/smoke.py BASE_URL [--full] [--strict]
   --strict  fail instead of skipping when Vercel Deployment Protection blocks access
 
 Without --full the check only reads: readiness (database answers, schema is current), the page,
-both logins, an authenticated read of the application list, the PDF of an already scored application
-and the live change feed.
+both logins, an authenticated read of the application list, the PDF of an already scored application,
+the analysis of the sample statement and the live change feed.
 
 Env: DEMO_CLIENT_PASSWORD / DEMO_BANK_PASSWORD (fall back to DEMO_LOGIN_PASSWORD, default alfa-demo-2026),
      VERCEL_AUTOMATION_BYPASS_SECRET (optional, for protected Vercel deployments).
@@ -67,6 +67,15 @@ def check_pdf(base, token, app_id):
     print(f'ok  решение в PDF по заявке {app_id}: {len(pdf) // 1024} КБ')
 
 
+def check_statement(base, token):
+    """The synthetic sample statement is analysed; nothing is written."""
+    _, sample = call(base, '/api/statement/sample.csv')
+    _, text = call(base, '/api/statement/analyze', 'POST', {'csv': sample}, token)
+    summary = json.loads(text)['summary']
+    assert summary['period']['months'] == 12 and summary['signature'], 'выписка не разобрана'
+    print(f"ok  выписка: {summary['operations']} операций, поток {summary['available_cashflow']} руб./мес.")
+
+
 def check_stream(base, token):
     """The first message of the change stream comes at once unless a proxy buffers the stream;
     a buffered stream is only a warning, the browser then polls /api/changes."""
@@ -118,6 +127,7 @@ def main():
     scored = next((x['id'] for x in queue if x['status'] in ('approved', 'counteroffer', 'rejected', 'accepted', 'expired')), None)
     if scored:
         check_pdf(base, bank, scored)
+    check_statement(base, client)
     check_stream(base, client)
 
     if '--full' in sys.argv:

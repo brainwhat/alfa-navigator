@@ -5,7 +5,8 @@ Usage: python scripts/smoke.py BASE_URL [--full] [--strict]
   --strict  fail instead of skipping when Vercel Deployment Protection blocks access
 
 Without --full the check only reads: readiness (database answers, schema is current), the page,
-both logins, an authenticated read of the application list and the live change feed.
+both logins, an authenticated read of the application list, the PDF of an already scored application
+and the live change feed.
 
 Env: DEMO_CLIENT_PASSWORD / DEMO_BANK_PASSWORD (fall back to DEMO_LOGIN_PASSWORD, default alfa-demo-2026),
      VERCEL_AUTOMATION_BYPASS_SECRET (optional, for protected Vercel deployments).
@@ -58,6 +59,14 @@ def login(base, role):
     return json.loads(text)['access_token']
 
 
+def check_pdf(base, token, app_id):
+    headers = {'Authorization': 'Bearer ' + token, **({'x-vercel-protection-bypass': BYPASS} if BYPASS else {})}
+    with urllib.request.urlopen(urllib.request.Request(f'{base}/api/applications/{app_id}/decision.pdf', headers=headers), timeout=20) as response:
+        pdf = response.read()
+    assert response.headers['Content-Type'] == 'application/pdf' and pdf.startswith(b'%PDF-'), 'решение не выгружается в PDF'
+    print(f'ok  решение в PDF по заявке {app_id}: {len(pdf) // 1024} КБ')
+
+
 def check_stream(base, token):
     """The first message of the change stream comes at once unless a proxy buffers the stream;
     a buffered stream is only a warning, the browser then polls /api/changes."""
@@ -103,7 +112,12 @@ def main():
     print('ok  login client/bank')
 
     _, text = call(base, '/api/applications', token=bank)
-    print(f'ok  чтение очереди из базы: {len(json.loads(text))} заявок')
+    queue = json.loads(text)
+    print(f'ok  чтение очереди из базы: {len(queue)} заявок')
+    # an already scored application, so production checks the PDF (fonts, Pillow) without writing anything
+    scored = next((x['id'] for x in queue if x['status'] in ('approved', 'counteroffer', 'rejected', 'accepted', 'expired')), None)
+    if scored:
+        check_pdf(base, bank, scored)
     check_stream(base, client)
 
     if '--full' in sys.argv:
@@ -123,11 +137,7 @@ def main():
         accepted = json.loads(text)
         assert accepted['status'] == 'accepted' and accepted['explanation']['accepted_terms'] == offer
         print(f'ok  e2e: заявка {app_id} -> approved -> accepted, условия совпали с предложением')
-        headers = {'Authorization': 'Bearer ' + client, **({'x-vercel-protection-bypass': BYPASS} if BYPASS else {})}
-        with urllib.request.urlopen(urllib.request.Request(f'{base}/api/applications/{app_id}/decision.pdf', headers=headers), timeout=20) as response:
-            pdf = response.read()
-        assert response.headers['Content-Type'] == 'application/pdf' and pdf.startswith(b'%PDF-'), 'решение не выгружается в PDF'
-        print(f'ok  решение в PDF: {len(pdf) // 1024} КБ')
+        check_pdf(base, client, app_id)
 
     print(f'PASS {base}')
 

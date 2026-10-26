@@ -7,6 +7,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 
 from app.auth import require, validate_any
+from app.documents import decision_pdf
 from app.policy import POLICY_VERSION, RATE, offer, rate_for, rub, score_application
 from app.schemas import (AcceptInput, Application, ApplicationInput, CLARIFY_FIELDS, Clarification, ListItem,
                          ManualDecision, RequestInfo)
@@ -56,6 +57,19 @@ def create_application(payload:ApplicationInput, response: Response,
 def get_application(id:str, authorization: str | None = Header(None)):
     validate_any(authorization)
     with conn() as c:return enriched(c,id)
+
+@router.get('/api/applications/{id}/decision.pdf', response_class=Response,
+            responses={200: {'content': {'application/pdf': {}}, 'description': 'Документ решения: условия, оценка, график платежей, история'},
+                       409: {'description': 'Заявку ещё не оценили'}})
+def decision_document(id:str, authorization: str | None = Header(None)):
+    """The decision as a PDF with the application number, dates, rules version and a demo mark."""
+    validate_any(authorization)
+    with conn() as c:
+        x=enriched(c,id)
+    if x['score'] is None:
+        raise HTTPException(409, 'Решения ещё нет: банк не оценил заявку')
+    return Response(decision_pdf(x), media_type='application/pdf',
+                    headers={'Content-Disposition': f'attachment; filename="alfa-navigator-{id}.pdf"'})
 
 @router.post('/api/applications/{id}/evaluate', **APPLICATION)
 def evaluate(id:str, expected: int | None = Depends(expected_version), role: str = Depends(require('bank'))):

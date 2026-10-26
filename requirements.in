@@ -5,3 +5,4 @@ starlette==1.7.0
 uvicorn==0.54.0
 pydantic==2.14.1
 psycopg[binary]==3.3.6
+fpdf2==2.8.9

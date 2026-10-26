@@ -29,6 +29,7 @@ flowchart LR
 | `app/demo.py` | Синтетические сценарии и `/api/demo/*`; шаги выполняются настоящими обработчиками |
 | `app/workflow.py` | Сервис переходов: чтение с ленивым истечением, `transition` с проверкой версии, выдача предложений, чей ход и SLA |
 | `app/policy.py` | Правила demo-rules-v1: балл, вклад факторов, решение, альтернативы, советы, ставка по баллу |
+| `app/documents.py` | PDF решения по карточке заявки: условия, оценка, график, история; ничего не знает об HTTP |
 | `app/schedules.py` | Аннуитетный платёж, график с досрочным погашением, сезонный сценарий |
 | `app/schemas.py` | Pydantic-модели запросов и ответов, из них строится OpenAPI |
 | `app/storage.py` | Соединение для Postgres и SQLite, часы, миграции, запись событий |
@@ -111,6 +112,7 @@ stateDiagram-v2
 | POST | `/api/applications` | клиент | Создать заявку (`Idempotency-Key`, `previous_id`) |
 | GET | `/api/applications` | банк | Очередь с SLA |
 | GET | `/api/applications/{id}` | любая | Карточка с историей и `version` |
+| GET | `/api/applications/{id}/decision.pdf` | любая | Решение в PDF; `409`, пока заявку не оценили |
 | POST | `/api/applications/{id}/request-info` | банк | Запрос уточнения выбранных полей |
 | POST | `/api/applications/{id}/clarify` | клиент | Ответ на уточнение |
 | POST | `/api/applications/{id}/evaluate` | банк | Скоринг и выдача предложения |

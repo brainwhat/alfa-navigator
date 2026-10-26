@@ -555,7 +555,8 @@ function bankActions(x) {
 function renderDetail(x) {
   const client = mode === 'client';
   const previous = x.previous_id ? `<p class="terms-note">Повторная подача вместо заявки № ${records.some(r => r.id === x.previous_id) ? `<a href="#" onclick="event.preventDefault();pick('${safe(x.previous_id)}')">${safe(x.previous_id)}</a>` : safe(x.previous_id)}</p>` : '';
-  let h = `<div class="detail-head"><div><small>Заявка № ${safe(x.id)} • подана ${fmtDate(x.created_at)}</small><h2>${safe(x.company)}</h2><p>${safe(x.purpose)}</p>${previous}</div><span class="pill ${x.status}">${statusName[x.status] || x.status}</span></div>`;
+  const pdf = x.score != null ? `<button class="ghost sm" onclick="downloadDecision()" title="Решение, условия, оценка, график платежей и история одним документом"><i class="ph ph-file-text"></i>Решение в PDF</button>` : '';
+  let h = `<div class="detail-head"><div><small>Заявка № ${safe(x.id)} • подана ${fmtDate(x.created_at)}</small><h2>${safe(x.company)}</h2><p>${safe(x.purpose)}</p>${previous}</div><div class="head-side"><span class="pill ${x.status}">${statusName[x.status] || x.status}</span>${pdf}</div></div>`;
   h += progress(x) + nextStep(x);
   if (x.status === 'expired') h += `<div class="notice warnbox">Срок действия предложения истёк.${client ? ' Попросите банк продлить его или измените заявку и подайте заново.' : ''}</div>`;
   h += currentTerms(x);
@@ -677,6 +678,22 @@ function prepay(btn) {
   const pp = {prepay_amount: +v('.pp-amount'), prepay_month: +v('.pp-month'), prepay_mode: v('.pp-mode')};
   if (!(pp.prepay_amount > 0 && pp.prepay_month > 0)) return toast('Укажите сумму и месяц досрочного погашения', 'error');
   renderSchedule(el, pp);
+}
+// Документ решения собирает сервер: номер, даты, версия правил, оценка, условия, график и история
+async function downloadDecision() {
+  const x = current;
+  if (!x) return;
+  try {
+    const res = await fetch(`/api/applications/${encodeURIComponent(x.id)}/decision.pdf`, {headers: {Authorization: 'Bearer ' + authToken}, signal: AbortSignal.timeout(20000)});
+    if (!res.ok) throw Error((await res.json().catch(() => null))?.detail || `Ошибка ${res.status}`);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await res.blob());
+    a.download = `alfa-navigator-${x.id}.pdf`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch (e) {
+    toast('Не удалось скачать решение: ' + (e.name === 'TimeoutError' ? 'сервер не ответил за 20 секунд' : e.message), 'error');
+  }
 }
 function downloadCsv(el) {
   const {s, t, pp} = el._schedule || {};

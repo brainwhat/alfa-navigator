@@ -542,6 +542,61 @@
         }
       }
     },
+    "/api/applications/{id}/decision.pdf": {
+      "get": {
+        "summary": "Decision Document",
+        "description": "The decision as a PDF with the application number, dates, rules version and a demo mark.",
+        "operationId": "decision_document_api_applications__id__decision_pdf_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Документ решения: условия, оценка, график платежей, история",
+            "content": {
+              "application/pdf": {}
+            }
+          },
+          "409": {
+            "description": "Заявку ещё не оценили"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/applications/{id}/evaluate": {
       "post": {
         "summary": "Evaluate",

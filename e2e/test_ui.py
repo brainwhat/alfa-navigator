@@ -54,7 +54,13 @@ def test_main_flow(page: Page):
     expect(agreed).to_contain_text('Согласованные условия')
     expect(agreed).to_contain_text('2 100 000 ₽')
     expect(card.locator('.pill').first).to_have_text('Условия приняты')
-    assert [x['status'] for x in applications(page, company)] == ['accepted']
+    [accepted] = applications(page, company)
+    assert accepted['status'] == 'accepted'
+
+    with page.expect_download() as download:
+        card.get_by_role('button', name='Решение в PDF').click()
+    assert download.value.suggested_filename == f"alfa-navigator-{accepted['id']}.pdf"
+    assert open(download.value.path(), 'rb').read(5) == b'%PDF-'
 
 def test_late_response_does_not_replace_card(page: Page):
     a, b = create(page, f'ООО Ранняя {uuid4().hex[:6]}'), create(page, f'ООО Поздняя {uuid4().hex[:6]}')

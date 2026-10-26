@@ -123,6 +123,11 @@ def main():
         accepted = json.loads(text)
         assert accepted['status'] == 'accepted' and accepted['explanation']['accepted_terms'] == offer
         print(f'ok  e2e: заявка {app_id} -> approved -> accepted, условия совпали с предложением')
+        headers = {'Authorization': 'Bearer ' + client, **({'x-vercel-protection-bypass': BYPASS} if BYPASS else {})}
+        with urllib.request.urlopen(urllib.request.Request(f'{base}/api/applications/{app_id}/decision.pdf', headers=headers), timeout=20) as response:
+            pdf = response.read()
+        assert response.headers['Content-Type'] == 'application/pdf' and pdf.startswith(b'%PDF-'), 'решение не выгружается в PDF'
+        print(f'ok  решение в PDF: {len(pdf) // 1024} КБ')
 
     print(f'PASS {base}')
 

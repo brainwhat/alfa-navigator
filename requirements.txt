@@ -6,7 +6,13 @@ anyio==4.15.1
     # via starlette
 click==8.5.0
     # via uvicorn
+defusedxml==0.7.1
+    # via fpdf2
 fastapi==0.143.0
+    # via -r requirements.in
+fonttools==4.67.0
+    # via fpdf2
+fpdf2==2.8.9
     # via -r requirements.in
 h11==0.16.0
     # via uvicorn
@@ -14,6 +20,8 @@ idna==3.20
     # via anyio
 opentelemetry-api==1.45.1
     # via fastapi
+pillow==13.0.0
+    # via fpdf2
 psycopg==3.3.6
     # via -r requirements.in
 psycopg-binary==3.3.6
